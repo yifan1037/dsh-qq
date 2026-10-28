@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "mode": "reserved2",
+  "ownerQQ": 0,
+  "allowPrivate": [],
+  "allowGroups": [],
+  "agentPreset": "qq-chat",
+  "workMode": false,
+  "desktopTools": false,
+  "consoleToken": "",
+  "snowlumaDir": "<SnowLuma 解压目录>"
+}

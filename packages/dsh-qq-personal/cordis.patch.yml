@@ -1,0 +1,20 @@
+# dsh-qq-personal bundle patch.
+#
+# One host-plane row: this plugin registers NO agent tools, it only owns the
+# external qq-bridge process and writes that bridge's configuration. Host-plane
+# is therefore the right plane (a tool-registering row would fight the web
+# surface's per-session preset composition).
+- insert:
+    - id: qq-personal
+      name: dsh-qq-personal
+      config:
+        enabled: true
+        # qq-bridge checkout (the transport: SnowLuma OneBot v11 <-> DSH API).
+        bridgeDir: ''  # 可选：旧版 qq-bridge 目录
+        # Portable Node runtime that has npm-installed bridge dependencies.
+        nodePath: ''  # 可选：指定 node 可执行文件
+        # Empty -> %USERPROFILE%/.dsh/qq-personal/settings.json
+        settingsPath: ''
+        autoStart: true
+        # Local management console (separate window; 打开QQ管理窗口.cmd).
+        consolePort: 3101

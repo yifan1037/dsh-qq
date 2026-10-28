@@ -1,0 +1,24 @@
+# NOTICE
+
+## Third-party code
+
+Files under `vendor/` are derived from **qq-bridge**:
+
+- `vendor/dsh-client.js`
+- `vendor/mcp-files.js`, `vendor/mcp-memory.js`, `vendor/mcp-shell.js`, `vendor/mcp-tasks.js`
+- `vendor/mcp-web-search-safe.js`, `vendor/memory-store.js`, `vendor/safe-fetch.js`, `vendor/web-search.js`
+- `vendor/docparse/` (ooxml.js, pdf.js, zip.js)
+
+Copyright (c) 2026 Derpyu520 and qq-bridge / QSH contributors.
+Licensed under the MIT License. See <https://github.com/Derpyu520/qq-bridge> (or the original
+repository this code came from) for the upstream project.
+
+These files are included unmodified in behavior; local adaptations are limited to
+making them resolve their dependencies from this package's own `vendor/node_modules`
+or the host DSH installation.
+
+## Not included
+
+- **SnowLuma** (the QQ / OneBot v11 protocol endpoint) is *not* bundled or redistributed.
+  Install it yourself and comply with its EULA.
+- No persona cards, chat history, memory databases, or other user data are included.

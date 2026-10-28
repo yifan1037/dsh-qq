@@ -1,0 +1,39 @@
+{
+    "name":  "dsh-qq-native",
+    "version":  "0.1.0",
+    "description":  "Native QQ agent for DSH — connects to SnowLuma (OneBot v11) inside the plugin, no separate bridge process",
+    "private":  false,
+    "type":  "commonjs",
+    "main":  "./lib/index.js",
+    "files":  [
+                  "lib",
+                  "vendor",
+                  "cordis.patch.yml",
+                  "README.md"
+              ],
+    "license":  "MIT",
+    "engines":  {
+                    "node":  "\u003e=22"
+                },
+    "keywords":  [
+                     "dsh",
+                     "dsh-plugin",
+                     "qq",
+                     "onebot",
+                     "snowluma",
+                     "agent"
+                 ],
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "./cordis.patch.yml"
+                           }
+            },
+    "dependencies":  {
+                         "js-yaml":  "^4.1.0",
+                         "zod":  "^3.23.8",
+                         "@deepseek-ai/dsh-host-apiproxy":  "*"
+                     },
+    "scripts":  {
+                    "test":  "node test/core.test.mjs"
+                }
+}

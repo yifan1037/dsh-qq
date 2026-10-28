@@ -1,0 +1,6 @@
+{
+  "name": "qq-native-vendor",
+  "private": true,
+  "type": "module",
+  "description": "从 qq-bridge 搬过来的 MCP 服务器与 DSH 客户端（原生链路专用）"
+}

@@ -1,0 +1,28 @@
+{
+    "name":  "dsh-qq-personal",
+    "version":  "0.2.0",
+    "private":  true,
+    "description":  "DSH host plugin that runs and configures a QQ personal-account bridge (SnowLuma OneBot v11 -\u003e DSH): group whitelist, chat/closed-agent modes, persona cards, auto start/stop.",
+    "type":  "commonjs",
+    "main":  "./lib/index.js",
+    "license":  "MIT",
+    "engines":  {
+                    "node":  "\u003e=22.13.0"
+                },
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "./cordis.patch.yml"
+                           },
+                "client":  {
+                               "inject":  [
+                                              "@deepseek-ai/dsh-client-ui-slots"
+                                          ],
+                               "platform":  "web"
+                           }
+            },
+    "exports":  {
+                    ".":  "./lib/index.js",
+                    "./client":  "./lib/client.js",
+                    "./package.json":  "./package.json"
+                }
+}

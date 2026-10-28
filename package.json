@@ -1,0 +1,13 @@
+{
+  "name": "dsh-qq",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Native QQ agent for DeepSeek Harness — plugin packages, console, and presets",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test": "node packages/dsh-qq-native/test/core.test.mjs",
+    "sanitize": "node scripts/sanitize.mjs packages",
+    "check": "npm run sanitize && npm test"
+  },
+  "license": "MIT"
+}

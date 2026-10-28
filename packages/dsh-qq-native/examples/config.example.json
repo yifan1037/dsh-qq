@@ -1,0 +1,19 @@
+{
+  "snowlumaDir": "C:/path/to/SnowLuma",
+  "httpPort": 3010,
+  "wsPort": 3011,
+  "ownerQQ": 10001,
+  "enableReply": true,
+  "triggerPrefix": "",
+  "observeOnly": false,
+  "batchWindowMs": 1600,
+  "reuseBridgeSession": false,
+  "preset": "qq-chat-v2",
+  "vendorDir": "",
+  "bridgeDir": "",
+  "schedulerIntervalMs": 60000,
+  "statsIntervalMs": 300000,
+  "screenWatch": { "enabled": false, "everyMinutes": 5, "comment": false },
+  "hobby": { "enabled": true, "maxPerDay": 2, "hours": [10, 22] },
+  "proactive": { "enabled": true, "idleMinutes": 240, "maxPerDay": 3, "hours": [9, 23] }
+}

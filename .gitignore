@@ -1,0 +1,13 @@
+node_modules/
+*.bak-*
+*.log
+config.json
+settings.json
+state/
+roles/
+personas/*.md
+!personas/example.md
+qq-memory/
+tasks/
+capabilities.json
+.env

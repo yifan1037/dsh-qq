@@ -1,0 +1,22 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  check:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: syntax
+        run: node scripts/check-syntax.mjs
+      - name: sanitize
+        run: node scripts/sanitize.mjs packages
+      - name: tests
+        run: node packages/dsh-qq-native/test/core.test.mjs

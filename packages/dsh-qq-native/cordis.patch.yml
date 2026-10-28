@@ -1,0 +1,9 @@
+# dsh-qq-native bundle patch
+#
+# 一行 host-plane：插件自己连 SnowLuma（OneBot v11），不使用 qq-bridge 进程。
+# 双跑阶段：enableReply + triggerPrefix 控制只有 "/n " 开头的消息才由本插件回。
+- insert:
+    - id: qq-native
+      name: dsh-qq-native
+      config:
+        enabled: true

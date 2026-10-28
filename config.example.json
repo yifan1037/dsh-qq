@@ -1,0 +1,32 @@
+{
+  "snowluma": {
+    "httpUrl": "http://127.0.0.1:3000",
+    "wsUrl": "ws://127.0.0.1:3001",
+    "accessToken": ""
+  },
+  "dsh": {
+    "baseUrl": "http://127.0.0.1:<DSH端口>",
+    "authToken": ""
+  },
+  "ownerQQ": null,
+  "allow": {
+    "private": [],
+    "groups": []
+  },
+  "socialV2": {
+    "enabled": true,
+    "hybridTextForward": true,
+    "tools": {
+      "getUnread": true,
+      "getRecent": true,
+      "socialState": true,
+      "reply": true,
+      "sendBurst": true,
+      "sendMessage": true,
+      "feedback": true,
+      "setWakeConfig": true,
+      "memory": true,
+      "getImages": true
+    }
+  }
+}

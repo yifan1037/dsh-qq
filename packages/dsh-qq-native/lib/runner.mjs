@@ -25,9 +25,16 @@ import os from 'node:os';
 import { discoverSnowLuma, OneBotHttp, OneBotWS } from './snowluma.mjs';
 import { createDshAgent } from './dsh-agent.mjs';
 import { buildMemoryBlock, readPersona, appendMemory, curateMemory } from './memory.mjs';
-import { createBatcher, extractMemoryLines } from './wake.mjs';
+import { createBatcher, extractMemoryLines, extractMedia } from './wake.mjs';
+import { createActions } from './actions.mjs';
+import { downloadImages, pruneMedia, mediaDir } from './media.mjs';
+import { fromOneBot, toPlainText, imagesOf } from './onebot-segments.mjs';
+import { decideGroupReply, gateGroupRate, buildGroupPromptBlock, groupsConfig } from './groups.mjs';
 import { startSchedulers } from './schedulers.mjs';
 import { startStats } from './stats.mjs';
+import { buildSelfBlock, extractSelfNote, writeSelf, readSelf, selfHash, rollbackSelf, changes as personaChanges } from './persona-self.mjs';
+import { buildReplyPrompt } from './reply-prompt.mjs';
+import { decideParticipation, buildParticipationHint } from './participation.mjs';
 import { readState, writeState, pushRecent } from './state.mjs';
 import { createEyes } from './eyes.mjs';
 import { pickHobby, appendHobbyLog, readHobbyNotes } from './hobbies.mjs';
@@ -58,7 +65,7 @@ const DEFAULTS = {
   // 只有以这个前缀开头的消息才由本插件回（双跑时用来安全测试；空串=全部回）
   triggerPrefix: '/n ',
   preset: 'qq-chat-v2',
-  bridgeDir: '', // 可选：旧版 qq-bridge 目录（仅 vendor 缺失时兜底）
+  bridgeDir: '<本机路径>',
 };
 
 function readConfig() {
@@ -148,8 +155,16 @@ function startInner(ctx) {
     return agentPromise;
   }
 
+  // 动作层：权限 + 审计 + 限流
+  const actions = createActions({ http, cfg, log });
+  const groupBatchers = new Map(); // 群聊单独排队，避免和私聊混批
+  log('[actions] 动作层就绪（' + Object.entries(actions.conf.enabled).filter(([, v]) => v).map(([k]) => k).join('/') + '）');
+
   // 消息合并器：连发多条只醒一次
   let stopStats = null;
+
+  // 启动时清理过期媒体（保留 3 天）
+  try { const n = pruneMedia({ days: 3 }); if (n) log('[media] 清理过期图片 ' + n + ' 张'); } catch { /* ignore */ }
 
   // 启动时整理一次记忆（去重/分组/生成 INDEX.md）
   try { curateMemory({ log }); } catch (error) { log('记忆整理失败：' + (error?.message ?? error)); }
@@ -168,12 +183,16 @@ function startInner(ctx) {
   // 调度器：L5 自主探索 + 任务续跑（和聊天共用 busy 互斥，避免抢同一条会话）
   const sendToOwner = async (text) => {
     const owner = Number(cfg.ownerQQ);
-    if (!owner || !text) return;
+    if (!owner || !text) return { ok: false, sent: 0, failed: 0, reason: 'no-owner-or-text' };
     const bubbles = splitBubbles(String(text)).slice(0, 3);
+    let sent = 0;
+    let failed = 0;
     for (let i = 0; i < bubbles.length; i++) {
       if (i > 0) await sleep(600 + Math.floor(Math.random() * 900));
-      await http.sendPrivate(owner, bubbles[i]);
+      const r = await actions.sendPrivateText(owner, bubbles[i]);
+      if (r?.ok) sent += 1; else failed += 1;
     }
+    return { ok: sent > 0, sent, failed };
   };
   const stopSchedulers = startSchedulers({
     getAgent,
@@ -184,6 +203,14 @@ function startInner(ctx) {
     setBusy: (v) => { busy = !!v; },
     proactive: cfg.proactive || null,
     readState,
+    // 聊天活跃判定：有排队消息，或 3 分钟内有新消息 → 后台任务让路
+    isChatActive: () => {
+      try {
+        if (batcher.pending > 0) return true;
+        const st = readState();
+        return Date.now() - (Number(st.lastIncomingAt) || 0) < 3 * 60 * 1000;
+      } catch { return false; }
+    },
     hobby: cfg.hobby || null,
     runHobby: async () => {
       const h = pickHobby();
@@ -200,6 +227,7 @@ function startInner(ctx) {
       ].filter(Boolean).join('\n');
       try {
         const agent = await getAgent();
+        // dry-run：只组装并打印 prompt，不调模型、不发 QQ、不写记忆
         const reply = (await agent.ask(prompt, { timeoutMs: 240000 })).trim();
         if (!reply || reply === '[SILENT]') { log('[hobby] 今天没心情'); return; }
         appendHobbyLog({ hobby: h.name, text: reply });
@@ -264,6 +292,22 @@ function startInner(ctx) {
   // QQ 指令：看屏幕 / 开屏幕监控 / 关屏幕监控
   async function handleScreenCommand(raw) {
     const text = String(raw || '').trim();
+    // 人设自述相关指令
+    if (/^(看自述|看看自述)$/.test(text)) {
+      const body = readSelf();
+      await sendToOwner(body ? ('我的自述：\n' + body) : '我还没写自述');
+      return true;
+    }
+    if (/^(回滚人设|恢复人设)$/.test(text)) {
+      const r = rollbackSelf();
+      await sendToOwner(r.ok ? ('已回滚到：' + r.from) : ('回滚失败：' + r.error));
+      return true;
+    }
+    if (/^(强制改自述)$/.test(text)) {
+      const r = writeSelf({ text: readSelf() || '（空）', reason: 'owner 强制重置额度', by: 'owner', force: true });
+      await sendToOwner(r.ok ? '额度已重置，今天可以再改一次自述' : ('失败：' + r.error));
+      return true;
+    }
     if (!text) return false;
     const o = String(cfg.ownerQQ || '');
     const isOwner = (id) => String(id) === o;
@@ -327,40 +371,96 @@ function startInner(ctx) {
     if (busy) { log('上一轮还没回完，跳过这条'); return; }
     busy = true;
     const t0 = Date.now();
+    const isGroup = meta.kind === 'group';
     const userId = Number(meta.userId ?? cfg.ownerQQ);
-    const key = 'private:' + userId;
+    const key = isGroup ? 'group:' + (meta.groupId ?? '') : 'private:' + userId;
     if (meta.count > 1) log(`本轮合并了 ${meta.count} 条消息`);
     pushRecent('owner', text);
     try {
       const st = readState();
       const firstTime = !st.sessionId;
-      const agent = await getAgent();
       const memory = buildMemoryBlock({ bridgeDir: cfg.bridgeDir, key, recent: readState().recent });
       const persona = firstTime ? readPersona({ bridgeDir: cfg.bridgeDir }) : '';
-      const prompt = [
-        persona ? '【你的角色卡】\n' + persona + '\n' : '',
-        memory,
-        '【QQ 私聊】主人在 QQ 上对你说了话，请直接写你要回的内容。',
-        '要求：只写回复文本，不要调用任何工具，不要解释。想分条就用换行。',
-        '如果这一轮你不想接话，只输出 [SILENT]。',
-        '如果这轮有值得长期记住的事（他的状态、约定、在意的事），单独一行写「记：xxx」——我会存进记忆库，不发到 QQ。',
-        '主人说：' + text,
-      ].join('\n');
+      const imageHint = (meta.imagePaths && meta.imagePaths.length)
+        ? '【主人刚发了图片，已保存到本地】\n' + meta.imagePaths.map((p) => '· ' + p).join('\n') + '\n如果你有 read_image 工具，可以看一眼再回话；看不到就直说看不到。\n'
+        : '';
+      const groupBlock = isGroup
+        ? buildGroupPromptBlock({ groupId: meta.groupId, senderName: meta.senderName, senderId: userId, text, atMe: meta.atMe })
+        : '';
+      // 自述层：首次或发生变化时注入
+      const selfH = selfHash();
+      const includeSelf = firstTime || (readState().lastSelfHash || '') !== selfH;
+      const selfBlock = includeSelf ? buildSelfBlock() : '';
+      if (includeSelf && selfH) { try { writeState({ lastSelfHash: selfH }); } catch { /* ignore */ } }
+
+      // 发言决策：该不该说 / 说几条 / 要不要引用
+      const participation = decideParticipation({ cfg, isGroup, text, atMe: meta.atMe === true, recent: readState().recent || [] });
+      if (!participation.speak) { log('[participation] 这轮选择不接（' + participation.reason + '）'); return; }
+      const participationHint = buildParticipationHint(participation, { isGroup });
+      if (participation.reason !== 'normal' && participation.reason !== 'disabled') log('[participation] ' + participation.reason + ' → ' + participation.bubbles + ' 条');
+
+      const prompt = buildReplyPrompt({ persona, selfBlock, imagePaths: meta.imagePaths || [], memory, groupBlock, text, isGroup, participationHint });
+      // dry-run：只组装并打印 prompt，不调模型、不发 QQ、不写记忆
+      if (process.env.QQ_NATIVE_DRYRUN === '1') {
+        log('[dryrun] prompt ' + prompt.length + ' 字，含图片提示=' + /【主人刚发了图片/.test(prompt) + (isGroup ? '（群聊）' : '（私聊）'));
+        log('[dryrun] 预览：' + prompt.replace(/\n+/g, ' ⏎ ').slice(0, 300));
+        return;
+      }
+      const agent = await getAgent();
       const reply = (await agent.ask(prompt, { timeoutMs: 180000 })).trim();
       if (!reply) { log('DSH 回复为空，跳过发送'); return; }
       if (reply === '[SILENT]' || reply === '［SILENT］') { log('她选择不说话（[SILENT]）'); return; }
       // 「记：xxx」行不进 QQ，写进记忆库
-      const mem = extractMemoryLines(reply);
+      // 「[自述: …]」行写进自述层，不发 QQ
+      let replyForMem = reply;
+      try {
+        const selfNote = extractSelfNote(reply);
+        if (selfNote.notes.length) {
+          replyForMem = selfNote.text;
+          const body = readSelf();
+          const merged = [body, ...selfNote.notes].filter(Boolean).join('\n');
+          const r = writeSelf({ text: merged, reason: 'agent 自述', by: 'agent', force: false });
+          if (r.ok) log('[persona] 自述已更新（' + r.chars + ' 字）');
+          else log('[persona] 自述未更新：' + r.error);
+        }
+      } catch (error) { log('[persona] 自述处理失败：' + (error?.message ?? error)); }
+
+      const mem = extractMemoryLines(replyForMem);
       for (const fact of mem.facts) {
         const rec = appendMemory({ text: fact, weight: 4, tags: ['native'], kind: '事件', source: 'qq-native' });
         if (rec) { log('已记入记忆库：' + fact.slice(0, 40)); try { curateMemory({ log }); } catch { /* ignore */ } }
       }
       const plain = mem.text.replace(/\*\*/g, '').replace(/^#+\s?/gm, '').trim();
-      if (!plain) { log('回复只有记忆行，没有要发的内容'); return; }
-      const bubbles = splitBubbles(plain);
+      // 媒体标记：[图片:path] [表情:id] [引用:id] [拍一拍] [文件:path]
+      const media = extractMedia(plain);
+      const textOnly = media.text;
+      if (!textOnly && !media.segments.length) { log('回复只有记忆行，没有要发的内容'); return; }
+
+      const replySegs = media.segments.filter((s) => s.type === 'reply');
+      const otherSegs = media.segments.filter((s) => s.type !== 'reply' && s.type !== 'poke');
+      const pokes = media.segments.filter((s) => s.type === 'poke');
+      const bubbles = textOnly ? splitBubbles(textOnly).slice(0, participation.bubbles || 3) : [];
+
       for (let i = 0; i < bubbles.length; i++) {
         if (i > 0) await sleep(600 + Math.floor(Math.random() * 900));
-        await http.sendPrivate(userId, bubbles[i]);
+        const segs = [];
+        if (i === 0) segs.push(...replySegs);
+        segs.push({ type: 'text', text: bubbles[i] });
+        // 发送失败重试一次（SnowLuma 抖动时常见）
+        let sendRes = isGroup ? await actions.sendGroupSegments(Number(meta.groupId), segs) : await actions.sendPrivateSegments(userId, segs);
+        if (!sendRes?.ok) {
+          await sleep(1200);
+          sendRes = isGroup ? await actions.sendGroupSegments(Number(meta.groupId), segs) : await actions.sendPrivateSegments(userId, segs);
+        }
+        if (!sendRes?.ok) { log('发送失败（重试后仍失败）：' + (sendRes?.error ?? '')); return; }
+      }
+      if (otherSegs.length) {
+        if (bubbles.length) await sleep(400 + Math.floor(Math.random() * 600));
+        if (isGroup) await actions.sendGroupSegments(Number(meta.groupId), otherSegs);
+        else await actions.sendPrivateSegments(userId, otherSegs);
+      }
+      for (const p of pokes) {
+        await actions.poke(isGroup ? 'group' : 'private', isGroup ? Number(meta.groupId) : userId);
       }
       pushRecent('me', bubbles.join(' / '));
       stats.replies += 1;
@@ -376,6 +476,15 @@ function startInner(ctx) {
       }
     }
   }
+
+  // 机器人自己的 QQ（判断群里 @ 是否指向自己）
+  let botQQ = '';
+  try {
+    http.getLoginInfo().then((info) => {
+      botQQ = String(info?.data?.user_id ?? info?.user_id ?? '');
+      log('[groups] 机器人 QQ: ' + (botQQ || '(取不到)'));
+    }).catch((error) => log('[groups] 取登录信息失败：' + (error?.message ?? error)));
+  } catch (error) { log('[groups] 取登录信息失败：' + (error?.message ?? error)); }
 
   const ws = new OneBotWS({
     url: found.wsUrl,
@@ -395,16 +504,54 @@ function startInner(ctx) {
         }
         // 第 2 步：满足条件才真的回复（默认关，避免和 bridge 双回）
         const fromOwner = cfg.ownerQQ ? String(ev.user_id) === String(cfg.ownerQQ) : false;
+        // 解析段落：文本走 textOf，图片先落本地
+        const segs = fromOneBot(ev.message);
         const text = textOf(ev);
+        let imagePaths = [];
+        const imgs = imagesOf(segs);
+        if (imgs.length) {
+          try {
+            imagePaths = await downloadImages(imgs, { log });
+            if (imagePaths.length) log('[media] 收到图片 ' + imagePaths.length + ' 张 → ' + imagePaths[0]);
+          } catch (error) { log('[media] 落图失败：' + (error?.message ?? error)); }
+        }
         const prefBase = cfg.triggerPrefix ? String(cfg.triggerPrefix).trim() : '';
         const prefixOk = prefBase ? (text === prefBase || text.startsWith(prefBase)) : true;
         const messageOk = ev.message_type === 'private' && fromOwner && text && prefixOk;
+
+        // ── 群聊（P1）：白名单 → 触发判定 → 冷却 → 入群队列 ──
+        if (ev.message_type === 'group') {
+          const groupId = String(ev.group_id ?? '');
+          const senderId = String(ev.user_id ?? '');
+          const senderName = ev.sender?.card || ev.sender?.nickname || senderId;
+          if (!botQQ || senderId !== botQQ) {
+            const d = decideGroupReply({ cfg, groupId, botQQ, segments: segs, text });
+            if (d.reply) {
+              const gc = groupsConfig(cfg);
+              const gate = gateGroupRate({ groupId, cooldownSeconds: gc.cooldownSeconds, maxPerHour: gc.maxPerHour });
+              if (gate.ok) {
+                const gb = groupBatchers.get(groupId) || batcher;
+                const result = gb.push(text || '[图片]', {
+                  kind: 'group', groupId, userId: Number(senderId), senderName,
+                  msgId: ev.message_id ?? ev.message_seq ?? '', key: 'group:' + groupId, imagePaths,
+                  atMe: d.reason === 'at',
+                });
+                log('群消息入队（' + result + '）群 ' + groupId + ' 来自 ' + senderName + '（' + d.reason + '）');
+              } else {
+                log('群消息跳过：' + gate.reason + (gate.waitSec ? '(' + gate.waitSec + 's)' : ''));
+              }
+            } else if (cfg.logEvents && groupsConfig(cfg).enabled) {
+              log('群消息不接（' + d.reason + '）群 ' + groupId);
+            }
+          }
+          return;
+        }
         if (cfg.enableReply && messageOk) {
           const cleanBase = cfg.triggerPrefix ? String(cfg.triggerPrefix).trim() : '';
           let clean = cleanBase ? text.slice(cleanBase.length).trim() : text;
           if (!clean) clean = '（只发了测试前缀，没写内容——回一句自然的招呼就行）';
           if (await handleScreenCommand(clean)) return;
-          const result = batcher.push(clean, { userId: Number(ev.user_id), msgId: ev.message_id ?? ev.message_seq ?? '', key });
+          const result = batcher.push(clean, { userId: Number(ev.user_id), msgId: ev.message_id ?? ev.message_seq ?? '', key, imagePaths });
           log(`消息入队（${result}）：${clean.slice(0, 40)}`);
         } else if (cfg.logEvents && stats.events <= 30) {
           log(`消息未触发回复（enableReply=${cfg.enableReply} 私聊=${ev.message_type === 'private'} 来自主人=${fromOwner} 前缀=${prefixOk}）`);
@@ -415,10 +562,35 @@ function startInner(ctx) {
     },
   });
 
+  // WS 看门狗：每 30 秒检查一次，断了就重连（SnowLuma 可能比 DSH 后启动）
+  const wsWatchdog = setInterval(() => {
+    try {
+      if (ws.connected) return;
+      log('[ws] 看门狗：连接不在，尝试重连');
+      ws.connect().catch((error) => log('[ws] 重连失败：' + (error?.message ?? error)));
+    } catch (error) { log('[ws] 看门狗异常：' + (error?.message ?? error)); }
+  }, 30000);
+  wsWatchdog.unref?.();
+
   ws.connect().then(() => {
     stats.connectedAt = Date.now();
     log('WS 已连接');
     // 自测开关：QQ_NATIVE_SELFTEST=1 时，连上后自动走一遍完整回复链路（会真的发到 owner QQ）
+    // dry-run 合成图片事件：QQ_NATIVE_DRYRUN=1 QQ_NATIVE_FAKE_IMAGE=<路径>
+    if (process.env.QQ_NATIVE_DRYRUN === '1' && process.env.QQ_NATIVE_FAKE_IMAGE) {
+      const fakePath = process.env.QQ_NATIVE_FAKE_IMAGE;
+      setTimeout(() => {
+        log('[dryrun] 合成一条带图片的私聊事件：' + fakePath);
+        Promise.resolve(ws.onEvent({
+          post_type: 'message', message_type: 'private', user_id: Number(cfg.ownerQQ), self_id: Number(botQQ) || Number(cfg.ownerQQ),
+          message_id: 'fake-' + Date.now(),
+          message: [
+            { type: 'text', data: { text: '（离线测试）看看这张图' } },
+            { type: 'image', data: { file: fakePath } },
+          ],
+        })).catch((error) => log('[dryrun] 合成事件失败：' + (error?.message ?? error)));
+      }, 3000);
+    }
     if (process.env.QQ_NATIVE_SELFTEST === '1' || process.env.QQ_NATIVE_SELFTEST === '2') {
       const two = process.env.QQ_NATIVE_SELFTEST === '2';
       setTimeout(() => {

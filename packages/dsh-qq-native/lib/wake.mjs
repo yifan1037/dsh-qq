@@ -60,7 +60,8 @@ export function createBatcher({
         log(`[wake] 潜水中（还有 ${Math.round((sleepingUntil - now) / 1000)}s），只收不回`);
         return 'sleeping';
       }
-      meta = meta || { userId: info.userId, key: info.key };
+      // 保留上游传入的所有 meta 字段（imagePaths / kind / groupId / senderName …）
+      meta = meta || { ...info };
       texts.push(t);
       if (!firstAt) firstAt = now;
       if (texts.length >= maxMessages) { void flush('maxMessages'); return 'flushed'; }
@@ -102,4 +103,32 @@ export function extractMemoryLines(reply) {
     else kept.push(line);
   }
   return { text: kept.join('\n').trim(), facts };
+}
+
+
+/** 从回复文本里抽媒体标记：
+ *   [图片:path] [表情:id] [引用:msgid] [拍一拍] [文件:path]
+ *   返回 { text, segments }，segments 是 onebot-segments 的内部结构
+ */
+export function extractMedia(reply) {
+  const src = String(reply ?? '');
+  const segments = [];
+  let rest = '';
+  let i = 0;
+  const re = /\[(图片|表情|引用|拍一拍|文件):?([^\]]*)\]/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    if (m.index > i) rest += src.slice(i, m.index);
+    const kind = m[1];
+    const arg = (m[2] || '').trim();
+    if (kind === '图片' && arg) segments.push({ type: 'image', file: arg });
+    else if (kind === '表情' && arg) segments.push({ type: 'face', id: arg });
+    else if (kind === '引用' && arg) segments.push({ type: 'reply', id: arg });
+    else if (kind === '文件' && arg) segments.push({ type: 'file', file: arg });
+    else if (kind === '拍一拍') segments.push({ type: 'poke', qq: '' });
+    else rest += m[0];
+    i = re.lastIndex;
+  }
+  if (i < src.length) rest += src.slice(i);
+  return { text: rest.trim(), segments };
 }

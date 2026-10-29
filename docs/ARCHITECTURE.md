@@ -98,3 +98,26 @@ L5/任务/主动/爱好都会往同一个 DSH 会话投 prompt，并发会打架
 ├── state/sessions.json            旧会话 id（接旧窗口用）
 └── screen/                        截图表 + 观察记录
 ```
+
+## 0.2.0 新增模块
+
+| 模块 | 职责 |
+|---|---|
+| `lib/onebot-segments.mjs` | CQ 码 ⇄ 内部段 ⇄ OneBot 段；引用/图片/表情/拍一拍/文件 |
+| `lib/actions.mjs` | 动作层：五层权限、审计、限流、panic 检查 |
+| `lib/media.mjs` | 图片落盘（http/base64/本地）与清理 |
+| `lib/groups.mjs` | 群聊策略：白名单/@/关键词/档位/冷却 |
+| `lib/participation.mjs` | 发言决策：该不该说、几条、要不要引用 |
+| `lib/persona-self.mjs` | 人设自述层：限长、频率、备份、审计、回滚 |
+| `lib/reply-prompt.mjs` | prompt 组装（纯函数，可单测与 dry-run） |
+| `vendor/memory-vault.js` | 记忆总库：所有操作永久留档 |
+| `vendor/mcp-qq-actions.js` | QQ 动作 MCP server（30 个工具，直连 SnowLuma） |
+
+### dry-run（离线验证）
+
+```powershell
+$env:QQ_NATIVE_DRYRUN = "1"
+$env:QQ_NATIVE_FAKE_IMAGE = "C:\path\to\img.png"
+```
+
+只组装 prompt 并打印，不调模型、不发 QQ、不写记忆。

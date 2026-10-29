@@ -67,6 +67,17 @@ export class OneBotHttp {
 
   sendPrivate(userId, message) { return this.call('send_private_msg', { user_id: userId, message }); }
   sendGroup(groupId, message) { return this.call('send_group_msg', { group_id: groupId, message }); }
+  /** 发消息段数组（图/表情/引用/@/文件） */
+  sendSegments(kind, id, message) {
+    return kind === 'group'
+      ? this.call('send_group_msg', { group_id: Number(id), message })
+      : this.call('send_private_msg', { user_id: Number(id), message });
+  }
+  /** 撤回 */
+  deleteMsg(messageId) { return this.call('delete_msg', { message_id: messageId }); }
+  /** 拍一拍 */
+  friendPoke(userId) { return this.call('friend_poke', { user_id: Number(userId) }); }
+  groupPoke(groupId, userId) { return this.call('group_poke', { group_id: Number(groupId), user_id: Number(userId) }); }
   getLoginInfo() { return this.call('get_login_info', {}); }
 }
 
@@ -113,14 +124,18 @@ export class OneBotWS {
       sock.addEventListener('close', (ev) => {
         this.ready = false;
         clearTimeout(timer);
-        if (!settled) { settled = true; reject(new Error(`WS 被关闭 ${ev?.code ?? ''} ${ev?.reason ?? ''}`)); return; }
+        const wasOpen = settled;
+        if (!settled) { settled = true; reject(new Error('WS 被关闭 ' + (ev?.code ?? '') + ' ' + (ev?.reason ?? ''))); }
         if (this.closedByUser) return;
-        this.log(`[ws] 连接断开（${ev?.code ?? '?'}），${Math.round(this.reconnectDelayMs / 1000)}s 后重连`);
+        // 首次连接失败同样重连（SnowLuma 可能比 DSH 后启动）
+        this.log('[ws] ' + (wasOpen ? '连接断开' : '连接失败') + '（' + (ev?.code ?? '?') + '），' + Math.round(this.reconnectDelayMs / 1000) + 's 后重连');
         if (this.reconnect) setTimeout(() => this.connect().catch(() => {}), this.reconnectDelayMs);
       });
       sock.addEventListener('error', () => { /* close 事件里统一处理 */ });
     });
   }
+
+  get connected() { return this.ready === true; }
 
   close() {
     this.closedByUser = true;

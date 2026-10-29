@@ -120,7 +120,8 @@ export function buildTaskPrompt(task) {
 }
 
 /* 启动调度：每分钟检查一次；返回停止函数 */
-export function startSchedulers({ getAgent, sendToOwner, log = () => {}, intervalMs = 60 * 1000, isBusy = () => false, setBusy = () => {}, proactive = null, readState = () => ({}), hobby = null, runHobby = null } = {}) {
+export function startSchedulers({ getAgent, sendToOwner, log = () => {}, intervalMs = 60 * 1000, isBusy = () => false, setBusy = () => {}, proactive = null, readState = () => ({}), hobby = null, runHobby = null, isChatActive = () => false, graceMs = 5 * 60 * 1000 } = {}) {
+  const startedAt = Date.now();
   let lastHobbyDay = '';
   let hobbyCount = 0;
   let proactiveDay = new Date().toDateString();
@@ -139,7 +140,7 @@ export function startSchedulers({ getAgent, sendToOwner, log = () => {}, interva
       const { text, facts } = splitFacts(reply);
       appendL5({ kind: 'finish', steps: 0, seconds: Math.round((Date.now() - t0) / 1000), result: text.slice(0, 300) });
       log(`[L5] 探索完成（${Math.round((Date.now() - t0) / 1000)}s），汇报 ${text.length} 字`);
-      if (text) await sendToOwner(text);
+      if (text) { const sent = await sendToOwner(text); if (!sent?.ok) log('[L5] 汇报发送失败'); }
       for (const f of facts) log(`[L5] 记忆：${f.slice(0, 40)}`);
     } catch (error) {
       appendL5({ kind: 'error', error: String(error?.message ?? error).slice(0, 300) });
@@ -158,7 +159,7 @@ export function startSchedulers({ getAgent, sendToOwner, log = () => {}, interva
       const { text, facts } = splitFacts(reply);
       mod.update(tk.id, { progress: `第 ${tk.rounds + 1} 轮：${(text || '（无输出）').slice(0, 120)}` });
       log(`[tasks] #${tk.id} 第 ${tk.rounds + 1} 轮完成（${Math.round((Date.now() - t0) / 1000)}s）`);
-      if (text) await sendToOwner(text);
+      if (text) { const sent = await sendToOwner(text); if (!sent?.ok) log('[tasks] 结果发送失败'); }
       for (const f of facts) log(`[tasks] 记忆：${f.slice(0, 40)}`);
     } catch (error) {
       log(`[tasks] #${tk.id} 轮次失败：${error?.message ?? error}`);
@@ -167,6 +168,8 @@ export function startSchedulers({ getAgent, sendToOwner, log = () => {}, interva
 
   const timer = setInterval(async () => {
     if (isBusy()) return;
+    if (Date.now() - startedAt < graceMs) return; // 启动宽限期：先把聊天服务起来
+    if (isChatActive()) return; // 聊天正在进行/刚进行过，后台任务让路
     try {
       const caps = readCaps();
       if (caps.panic) return;
@@ -227,7 +230,11 @@ export function startSchedulers({ getAgent, sendToOwner, log = () => {}, interva
               '如果觉得不该打扰，就只输出 [SILENT]。',
             ].join('\n');
             const reply = (await agent.ask(prompt, { timeoutMs: 180000 })).trim();
-            if (reply && reply !== '[SILENT]') { await sendToOwner(reply); log('[proactive] 已发送'); }
+            if (reply && reply !== '[SILENT]') {
+              const sent = await sendToOwner(reply);
+              if (sent && sent.ok) log('[proactive] 已发送（' + sent.sent + ' 条）');
+              else log('[proactive] 发送失败，不计入已发送（' + (sent?.failed ?? '?') + ' 条失败）');
+            }
             else log('[proactive] 她选择不打扰');
           } catch (error) { log('[proactive] 失败：' + (error?.message ?? error)); }
           finally { setBusy(false); }

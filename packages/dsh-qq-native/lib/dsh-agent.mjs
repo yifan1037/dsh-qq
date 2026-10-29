@@ -22,7 +22,7 @@ const WORKDIR = path.join(os.homedir(), '.dsh', 'qq-native', 'agent-workdir');
 
 export async function createDshAgent({ bridgeDir = '', vendorDir = '', preset = 'qq-chat-v2', log = () => {}, resumeSessionId = '' } = {}) {
   // vendor 优先按本模块位置解析（包自带），不依赖任何本机绝对路径
-  if (!vendorDir) vendorDir = fileURLToPath(new URL('./vendor', import.meta.url));
+  if (!vendorDir) vendorDir = fileURLToPath(new URL('../vendor', import.meta.url));
   const port = await discoverDshPort(log, [3100, 3101, 3010, 3011, 3110]);
   if (!port) throw new Error('找不到 DSH web 端口');
 

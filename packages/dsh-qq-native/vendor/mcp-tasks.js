@@ -21,9 +21,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 const require = createRequire(import.meta.url);
-// 任务模块位置：优先环境变量，其次默认安装路径（跨机器可用）
-const TASKS_PATH = process.env.DSH_QQ_TASKS_MODULE
-  || require('node:path').join(require('node:os').homedir(), '.dsh', 'plugins', 'dsh-qq-personal', 'lib', 'tasks.js');
+const TASKS_PATH = process.env.DSH_QQ_TASKS_MODULE || require('node:path').join(require('node:os').homedir(), '.dsh', 'plugins', 'dsh-qq-personal', 'lib', 'tasks.js');
 const TASKS = require(TASKS_PATH);
 
 const SETTINGS_FILE = path.join(os.homedir(), '.dsh', 'qq-personal', 'settings.json');

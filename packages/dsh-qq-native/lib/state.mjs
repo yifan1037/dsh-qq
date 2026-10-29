@@ -20,6 +20,7 @@ export function readState() {
       sessionPreset: typeof j.sessionPreset === 'string' ? j.sessionPreset : '',
       createdAt: Number(j.createdAt) || 0,
       lastIncomingAt: Number(j.lastIncomingAt) || 0,
+      lastSelfHash: typeof j.lastSelfHash === 'string' ? j.lastSelfHash : '',
       recent: Array.isArray(j.recent) ? j.recent.slice(-MAX_RECENT) : [],
     };
   } catch {

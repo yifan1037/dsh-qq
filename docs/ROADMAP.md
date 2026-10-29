@@ -56,3 +56,7 @@
 
 - `0.x` 阶段：小版本（0.1 → 0.2）可以有不兼容变更，CHANGELOG 里写清
 - `1.0` 之后：语义化版本，配置项只增不删（删要 deprecation 周期）
+## 借鉴清单（来自同生态项目）
+
+- [SurfCore 可借鉴点](BORROW-SURFCORE.md)：目的机制 / 发言决策 / 记忆衰减 / 作息额度 / 工具门控发送 / 配置热生效
+  优先级：participation → purpose → memory-decay → presence → 工具门控

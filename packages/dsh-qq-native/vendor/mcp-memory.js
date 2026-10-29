@@ -179,4 +179,29 @@ server.tool(
   }
 );
 
+server.tool(
+  'memory_vault',
+  '查记忆总库：所有记忆操作（含已删除/已归档的）都永久留档。用于找回旧记忆、核对历史。',
+  {
+    query: z.string().optional().describe('关键词；留空则返回最近的记录'),
+    limit: z.number().optional().describe('返回条数，默认 20'),
+  },
+  async ({ query, limit }) => {
+    try {
+      const { vaultSearch, vaultStats } = await import('./memory-vault.js');
+      const rows = vaultSearch({ query: query || '', limit: limit || 20 });
+      const stats = vaultStats();
+      if (!rows.length) return { content: [{ type: 'text', text: '总库里没有匹配的记忆。（总库共 ' + stats.events + ' 条事件）' }] };
+      const lines = rows.map((r) => {
+        const d = new Date(r.at);
+        const pad = (n) => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' [' + r.op + '] ' + String(r.text).replace(/\s+/g, ' ').slice(0, 160);
+      });
+      return { content: [{ type: 'text', text: '总库匹配 ' + rows.length + ' 条（共 ' + stats.events + ' 条事件，' + stats.sizeKB + ' KB）：\n' + lines.join('\n') }] };
+    } catch (error) {
+      return { content: [{ type: 'text', text: '查总库失败：' + (error?.message ?? error) }], isError: true };
+    }
+  }
+);
+
 await server.connect(new StdioServerTransport());

@@ -10,6 +10,7 @@
 //   · 删除要显式（memory_forget）或走 memory_compact 的保守规则，绝不静默丢重要内容。
 
 import fs from 'node:fs';
+import { vaultAppend } from './memory-vault.js';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
@@ -127,10 +128,12 @@ export const MemoryStore = {
       dup.at = rec.at;
       dup.tags = [...new Set([...dup.tags, ...rec.tags])].slice(0, 12);
       writeAll(list);
+        try { vaultAppend({ op: 'add', origin: 'mcp', memory: dup, deduped: true }); } catch { /* ignore */ }
       return { ok: true, deduped: true, memory: dup };
     }
     list.push(rec);
     writeAll(list);
+      try { vaultAppend({ op: 'add', origin: 'mcp', memory: rec }); } catch { /* ignore */ }
     return { ok: true, memory: rec };
   },
 
@@ -182,6 +185,7 @@ export const MemoryStore = {
     if (patch.weight !== undefined) m.weight = clampInt(patch.weight, 1, 5, m.weight);
     if (patch.kind !== undefined) m.kind = String(patch.kind).slice(0, 12);
     writeAll(all);
+    try { vaultAppend({ op: 'update', origin: 'mcp', memory: m }); } catch { /* ignore */ }
     return { ok: true, memory: m };
   },
 
@@ -191,6 +195,7 @@ export const MemoryStore = {
     if (idx < 0) throw new Error('没有这条记忆');
     const [removed] = all.splice(idx, 1);
     writeAll(all);
+      try { vaultAppend({ op: 'forget', origin: 'mcp', memory: removed }); } catch { /* ignore */ }
     return { ok: true, removed };
   },
 

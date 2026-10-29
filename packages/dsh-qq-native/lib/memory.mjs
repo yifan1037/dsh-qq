@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { curateMemory, readMemoryIndex } from './memory-curate.mjs';
 import { readObservations } from './screenwatch.mjs';
+import { vaultAppend } from '../vendor/memory-vault.js';
 import { readHobbyNotes } from './hobbies.mjs';
 export { curateMemory, readMemoryIndex };
 
@@ -138,6 +139,7 @@ export function appendMemory({ text, weight = 3, tags = [], kind = '事件', sou
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.appendFileSync(file, JSON.stringify(rec) + '\n', 'utf8');
+    try { vaultAppend({ op: 'add', origin: 'plugin', memory: rec }); } catch { /* ignore */ }
     return rec;
   } catch {
     return null;

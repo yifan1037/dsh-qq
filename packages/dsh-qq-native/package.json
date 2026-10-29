@@ -1,6 +1,6 @@
 {
     "name":  "dsh-qq-native",
-    "version":  "0.1.0",
+    "version":  "0.2.0",
     "description":  "Native QQ agent for DSH — connects to SnowLuma (OneBot v11) inside the plugin, no separate bridge process",
     "private":  false,
     "type":  "commonjs",

@@ -83,3 +83,56 @@
 | 屏幕监控开关 | **20 秒内**自动同步（插件轮询配置文件） |
 | 其它 config.json 项 | 重启 DSH |
 | capabilities / settings | 下次读取即生效（插件按需读文件） |
+
+## 群聊（0.2.0 起）
+
+```jsonc
+"groups": {
+  "enabled": false,          // 总开关
+  "allow": [],               // 群号白名单；空 = 全部拒绝
+  "defaultTier": 20,         // 0-10 仅@、10-20 +关键词、20-90 +概率、90-100 全响应
+  "keywords": [],
+  "cooldownSeconds": 20,     // 同群冷却
+  "maxPerHour": 30,
+  "tiers": {}                // 按群覆盖档位：{"123456": 100}
+}
+```
+
+## 发言决策（0.2.0 起）
+
+```jsonc
+"participation": {
+  "enabled": true,
+  "groupBubbles": 1,         // 群聊最多几条
+  "privateBubbles": 3,
+  "quietAfterReplyMs": 15000,
+  "burstWindowMs": 120000,
+  "burstThreshold": 3,
+  "quoteBias": false
+}
+```
+
+## 动作层（0.2.0 起）
+
+```jsonc
+"actions": {
+  "enabled": { "message": true, "media": true, "group": true, "admin": false, "destructive": false },
+  "rateLimit": { "userPerMinute": 20, "groupPerMinute": 10 },
+  "audit": true
+}
+```
+
+`admin`（群管理/申请处理）与 `destructive`（踢人/退群/删好友/改资料）默认关闭。
+
+## 人设自述层
+
+- 底座：`~/.dsh/qq-native/data/persona.md`（只读）
+- 自述：`~/.dsh/qq-native/data/persona-self.md`（她可写，≤4KB，每天 1 次，自动备份）
+- 审计：`~/.dsh/qq-native/state/persona-changes.jsonl`
+- 管理台：人设页 → 自述层（编辑/回滚/历史）
+
+## 记忆总库
+
+- 路径：`~/.dsh/qq-memory/all-memories.jsonl`（可用 `QQ_MEMORY_DIR` 改）
+- 每次 add/update/forget 追加一行，永不修改、永不删除
+- 工具：`memory_vault(query?)`

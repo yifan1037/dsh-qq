@@ -3,7 +3,7 @@
  *
  * What it owns
  * ------------
- * DSH already speaks to QQ through `qq-bridge` (a separate Node process, legacy:
+ * DSH already speaks to QQ through `qq-bridge` (a separate Node process:
  * SnowLuma OneBot v11 WebSocket on one side, the DSH HTTP/RPC API on the other).
  * That process is battle-tested but it is a daemon the user has to remember to
  * start, and its three user-facing knobs — the group whitelist, the
@@ -16,14 +16,14 @@
  *        mode / ownerQQ / allowPrivate / allowGroups / agentPreset / persona
  *                 |
  *                 v  (applied on load and whenever the file changes)
- *   <bridge>/config.json          (allow lists, owner, preset, session cwd)
- *   <bridge>/state/mode.json      ({ mode, closedAgentPreset })
- *   <bridge>/roles/<name>.md      (persona card text)
- *   <bridge>/state/current-role.json ({ role, mode: "active" })
- *   <bridge>/config.json dsh.baseUrl <- the live DSH web port, discovered
+ *   qq-bridge/config.json          (allow lists, owner, preset, session cwd)
+ *   qq-bridge/state/mode.json      ({ mode, closedAgentPreset })
+ *   qq-bridge/roles/<name>.md      (persona card text)
+ *   qq-bridge/state/current-role.json ({ role, mode: "active" })
+ *   qq-bridge/config.json dsh.baseUrl <- the live DSH web port, discovered
  *                 |
  *                 v
- *   node <bridge>/src/bridge.js  (child process, restarted on crash,
+ *   node qq-bridge/src/bridge.js  (child process, restarted on crash,
  *                                  stopped when this plugin is disposed)
  *
  * The plugin registers no agent tools on purpose: a host-plane row that
@@ -51,15 +51,15 @@ const inject = [];
 
 const DEFAULTS = {
   enabled: true,
-  bridgeDir: '',
-  nodePath: '',
+  bridgeDir: '<本机路径>',
+  nodePath: '<本机路径>',
   settingsPath: '',
   autoStart: true,
   consolePort: 3101,
 };
 
-const PREFERRED_PERSONA = '';
-const LEAN_PERSONA = '';
+const PREFERRED_PERSONA = '<本机路径>';
+const LEAN_PERSONA = '<本机路径>';
 
 /**
  * The user-edited settings file, with defaults that match this machine.
@@ -67,7 +67,7 @@ const LEAN_PERSONA = '';
  */
 function defaultSettings() {
   const persona = existsSync(PREFERRED_PERSONA)
-    ? { name: '助手', file: PREFERRED_PERSONA, fullFile: PREFERRED_PERSONA, text: '' }
+    ? { name: '小助手', file: PREFERRED_PERSONA, fullFile: PREFERRED_PERSONA, text: '' }
     : { name: '', file: '', fullFile: '', text: '' };
   return {
     version: 1,
@@ -77,7 +77,7 @@ function defaultSettings() {
     allowGroups: [],
     agentPreset: 'qq-chat',
     workMode: false,
-    sessionCwd: '',
+    sessionCwd: '<本机路径>',
     roleMaxInjectChars: 20000,
       // 电脑操作总开关（QQ 管理台 → 高级）：关闭时 computer/computer_batch 不可用
       desktopTools: false,
@@ -88,14 +88,14 @@ function defaultSettings() {
     reasoningEffort: 'high',
     model: 'deepseek-flash',
       // 左侧栏「SnowLuma」按钮用的安装目录（含 node.exe 与 index.mjs）
-      snowlumaDir: '<path>',
+      snowlumaDir: '<snowluma目录>',
     // 群聊响应档位（QQ Agent 语义，0~100）：
     //   0-10 仅 @ / 叫名字 / 引用机器人   10-20 再加关键词
     //   20-90 再加随机接话（概率线性）    90-100 白名单群内全响应
     groupTierSlider: 95,
     groupTierOverrides: {},
     groupMuted: [],
-    tierKeywords: ['助手', 'deepseek', 'ds', '在吗'],
+    tierKeywords: ['小助手', 'deepseek', 'ds', '在吗'],
     persona,
     notes: {
       mode: 'chat = 白名单群/私聊安全聊天；closed-agent = 仅 owner 私聊，使用 DSH 默认 preset（完整工具）',
@@ -321,9 +321,9 @@ function applyToBridge({ settings, bridgeDir, dshPort, log }) {
   const configPath = join(bridgeDir, 'config.json');
   const examplePath = join(bridgeDir, 'config.example.json');
   if (!existsSync(configPath)) {
-    if (!existsSync(examplePath)) throw new Error(`qq-bridge config missing: ${configPath}`);
+    if (!existsSync(examplePath)) { log?.warn?.(`qq-bridge 已归档，跳过配置同步（管理台照常运行）`); return; }
     writeText(configPath, readFileSync(examplePath, 'utf8'));
-    log?.info?.(`dsh-qq-personal: created <bridge>/config.json from config.example.json`);
+    log?.info?.(`dsh-qq-personal: created qq-bridge/config.json from config.example.json`);
   }
 
   const config = readJson(configPath, null);
@@ -559,6 +559,12 @@ function apply(ctx, config) {
 
   const startBridge = async (reason) => {
     if (disposed) return;
+    // [patch] autoStart 守卫：原生链路下桥接已退役，别再被拉起
+    try {
+      const s0 = readJson(settingsPath, null);
+      if (s0 && s0.autoStart !== true) { log.info('dsh-qq-personal: autoStart=false，跳过启动桥接'); return; }
+    } catch { /* ignore */ }
+
     restartTimer = null;
 
     let dshPort = null;
@@ -642,6 +648,8 @@ function apply(ctx, config) {
   };
 
   const scheduleRestart = (reason, delayMs) => {
+    // [patch] autoStart 守卫（重启路径）
+    try { const s0 = readJson(settingsPath, null); if (s0 && s0.autoStart !== true) return; } catch { /* ignore */ }
     if (disposed || restartTimer) return;
     restartAttempts += 1;
     restartTimer = setTimeout(() => {
@@ -753,10 +761,34 @@ function apply(ctx, config) {
         return null;
       }
     })();
+      // [patch] 原生链路状态（桥接已退役，管理台改为读插件）
+      let nativeConnected = false;
+      let nativeCfg = null;
+      let nativeSessionId = '';
+      try {
+        const os2 = require('node:os');
+        const fs2 = require('node:fs');
+        const p2 = require('node:path');
+        const home2 = os2.homedir();
+        nativeConnected = Date.now() - fs2.statSync(p2.join(home2, '.dsh', 'qq-native', 'plugin.log')).mtimeMs < 90 * 1000;
+        nativeCfg = JSON.parse(fs2.readFileSync(p2.join(home2, '.dsh', 'qq-native', 'config.json'), 'utf8').replace(/^\uFEFF/, ''));
+        nativeSessionId = (JSON.parse(fs2.readFileSync(p2.join(home2, '.dsh', 'qq-native', 'state.json'), 'utf8').replace(/^\uFEFF/, '')) || {}).sessionId || '';
+      } catch { /* ignore */ }
     return {
       settings,
+        native: { connected: nativeConnected, config: nativeCfg, sessionId: nativeSessionId },
+      versions: (() => {
+        const read = (p) => { try { return JSON.parse(require('node:fs').readFileSync(p, 'utf8').replace(/^\uFEFF/, '')).version || ''; } catch { return ''; } };
+        const home = require('node:os').homedir();
+        return {
+          native: read(require('node:path').join(home, '.dsh', 'plugins', 'dsh-qq-native', 'package.json')),
+          console: read(require('node:path').join(home, '.dsh', 'plugins', 'dsh-qq-personal', 'package.json')),
+          presets: read(require('node:path').join(home, '.dsh', 'plugins', 'qq-agent-presets', 'package.json')),
+        };
+      })(),
       applied: lastApplied,
       bridge: {
+        native: nativeConnected,
         running: Boolean(child) || bridgePortAlive,
         pid: child?.pid ?? lockPid,
         portAlive: bridgePortAlive,
@@ -800,7 +832,58 @@ function apply(ctx, config) {
       // ── 成本统计（成本面板用）──────────────────────────────────────────────
       // 数据源：state/token-usage.jsonl（桥接逐回合记账）+ 官方单价（元 / 百万 token）。
       // 只累计 k === 'turn' 的条目：base 是同回合的汇总行，一起加会翻倍。
-      // ── 会话视图（仿 QQ Agent 的会话列表）──────────────────────────────
+      // 原生链路的数据目录（桥接退役后所有状态都在这）
+    const nativeData = join(homedir(), '.dsh', 'qq-native', 'data');
+    const nativeState = join(homedir(), '.dsh', 'qq-native', 'state');
+    const pickFile = (names) => {
+      for (const p of names) { try { if (existsSync(p)) return p; } catch { /* ignore */ } }
+      return names[names.length - 1];
+    };
+
+    // ── 屏幕监控（只读）──────────────────────────────────────────────
+    const screenPaths = () => {
+      const dir = join(homedir(), '.dsh', 'qq-native', 'screen');
+      return { dir, obs: join(dir, 'observations.jsonl'), log: join(dir, 'watch.jsonl'), state: join(dir, 'state.json'), latest: join(dir, 'latest.png') };
+    };
+    const readScreenConfig = () => {
+      try {
+        const cfgPath = join(homedir(), '.dsh', 'qq-native', 'config.json');
+        const j = JSON.parse(readFileSync(cfgPath, 'utf8').replace(/^\uFEFF/, ''));
+        return { cfgPath, config: j, screenWatch: j.screenWatch || { enabled: false, everyMinutes: 5, comment: false } };
+      } catch { return { cfgPath: '', config: null, screenWatch: { enabled: false, everyMinutes: 5, comment: false } }; }
+    };
+    const screenStatus = () => {
+      const p = screenPaths();
+      const { screenWatch } = readScreenConfig();
+      let st = {};
+      try { st = JSON.parse(readFileSync(p.state, 'utf8')); } catch { /* none */ }
+      const recent = [];
+      const observations = [];
+      try {
+        for (const line of readFileSync(p.obs, 'utf8').trim().split(/\r?\n/).filter(Boolean).slice(-30)) {
+          try { observations.push(JSON.parse(line)); } catch { /* skip */ }
+        }
+      } catch { /* none */ }
+      try {
+        for (const line of readFileSync(p.log, 'utf8').trim().split(/\r?\n/).filter(Boolean).slice(-20)) {
+          try { recent.push(JSON.parse(line)); } catch { /* skip */ }
+        }
+      } catch { /* none */ }
+      return {
+        enabled: Boolean(screenWatch.enabled),
+        everyMinutes: Number(screenWatch.everyMinutes) || 5,
+        comment: Boolean(screenWatch.comment),
+        lastAt: Number(st.lastAt) || 0,
+        changes: Number(st.changes) || 0,
+        lastChangeAt: Number(st.lastChangeAt) || 0,
+        latestExists: existsSync(p.latest),
+        latestAt: (() => { try { return statSync(p.latest).mtimeMs; } catch { return 0; } })(),
+        observations: observations.reverse().slice(0, 20),
+        changesLog: recent.reverse().slice(0, 20),
+      };
+    };
+
+    // ── 会话视图（仿 QQ Agent 的会话列表）──────────────────────────────
     // 数据源：token-usage.jsonl 按 key 聚合（只累计 k=turn，base 是汇总行会翻倍）、
     //        social-v2.json 的最后一条消息/未读、sessions.json 的模式与预设。
     const sessionsInfo = async () => {
@@ -810,7 +893,7 @@ function apply(ctx, config) {
         'deepseek-v4-pro': { cacheHit: 0.15, cacheMiss: 4.5, cacheWrite: 4.5, output: 13.5 },
       };
       let text = '';
-      try { text = readFileSync(join(bridgeDir, 'state', 'token-usage.jsonl'), 'utf8'); }
+      try { text = readFileSync(join(homedir(), '.dsh', 'qq-native', 'state', 'token-usage.jsonl'), 'utf8'); }
       catch { return { error: '还没有用量记录（token-usage.jsonl 不存在）' }; }
       const agg = new Map();
       for (const line of text.split(/\r?\n/)) {
@@ -831,12 +914,9 @@ function apply(ctx, config) {
         cur.lastAt = Math.max(cur.lastAt, Number(j.t) || 0);
         agg.set(j.key, cur);
       }
-      const readStateFile = (name, fallback) => {
-        try { return JSON.parse(readFileSync(join(bridgeDir, 'state', name), 'utf8').replace(/^\uFEFF/, '')); }
-        catch { return fallback; }
-      };
-      const social = readStateFile('social-v2.json', { conversations: {} });
-      const sessions = readStateFile('sessions.json', { sessions: {}, sessionPolicies: {} });
+      const readStateFileFrom = (file) => { try { return JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, '')); } catch { return null; } };
+      const social = readStateFileFrom(pickFile([join(nativeData, 'social-v2.json'), join(bridgeDir, 'state', 'social-v2.json')])) ?? { conversations: {} };
+      const sessions = readStateFileFrom(pickFile([join(nativeState, 'sessions.json'), join(bridgeDir, 'state', 'sessions.json')])) ?? { sessions: {}, sessionPolicies: {} };
       const list = [...agg.values()].map((a) => {
         const conv = social.conversations?.[a.key] ?? {};
         const recent = Array.isArray(conv.recentMessages) ? conv.recentMessages : [];
@@ -892,7 +972,7 @@ function apply(ctx, config) {
     const panicNow = async (body = {}) => (await capsMod()).panicOn(body.reason || '手动紧急停止', body.by || 'console');
     const panicReset = async () => (await capsMod()).panicOff('console');
     const exploreActivity = async () => {
-      const dir = join(homedir(), '.dsh', 'qq-personal');
+      const dir = join(homedir(), '.dsh', 'qq-native', 'state');
       const readLines = (name, max) => {
         try {
           const raw = readFileSync(join(dir, name), 'utf8');
@@ -930,9 +1010,9 @@ function apply(ctx, config) {
         };
         let text = '';
         try {
-          text = readFileSync(join(bridgeDir, 'state', 'token-usage.jsonl'), 'utf8');
+          text = readFileSync(join(homedir(), '.dsh', 'qq-native', 'state', 'token-usage.jsonl'), 'utf8');
         } catch {
-          return { error: '还没有用量记录（<bridge>/state/token-usage.jsonl 不存在）' };
+          return { error: '还没有用量记录（qq-bridge/state/token-usage.jsonl 不存在）' };
         }
         const dayKey = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
         const days = new Map();

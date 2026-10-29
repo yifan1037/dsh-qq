@@ -14,6 +14,9 @@
 
 const http = require('node:http');
 const { URL } = require('node:url');
+const fsx = require('node:fs');
+const pathx = require('node:path');
+const osx = require('node:os');
 
 const PAGE = String.raw`<!doctype html>
 <html lang="zh-CN">
@@ -56,25 +59,111 @@ const PAGE = String.raw`<!doctype html>
   pre.log { background:#0b0d12; border:1px solid var(--line); border-radius:10px; padding:12px; max-height:520px; overflow:auto; font:12px/1.45 Consolas, monospace; white-space:pre-wrap; }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   @media (max-width: 900px) { main { grid-template-columns:1fr; } nav { flex-direction:row; flex-wrap:wrap; position:static; } .grid2 { grid-template-columns:1fr; } }
+    /* ── 视觉增强 ─────────────────────────────── */
+    :root {
+      --bg:#0b0d12; --bg2:#0f1219; --card:#141822; --card2:#171c27; --line:#232a38;
+      --fg:#e8ecf4; --dim:#8b95a8; --accent:#5b8cff; --accent2:#7aa2ff;
+      --ok:#3ecf8e; --bad:#ff6b6b; --warn:#f5b94a;
+      --shadow:0 6px 24px rgba(0,0,0,.35);
+    }
+    body {
+      background:
+        radial-gradient(1200px 600px at 15% -10%, rgba(91,140,255,.10), transparent 60%),
+        radial-gradient(900px 500px at 110% 0%, rgba(126,87,255,.08), transparent 55%),
+        var(--bg);
+      min-height:100vh;
+    }
+    header {
+      background:linear-gradient(180deg, rgba(19,23,32,.96), rgba(15,18,25,.92));
+      backdrop-filter: blur(10px);
+      border-bottom:1px solid var(--line);
+      box-shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.25);
+    }
+    .brand { display:flex; flex-direction:column; gap:1px; }
+    .brand h1 { letter-spacing:.02em; }
+    .brand .sub { font-size:11px; color:var(--dim); }
+    .chip {
+      display:inline-flex; align-items:center; gap:6px;
+      background:rgba(255,255,255,.03); border:1px solid var(--line);
+      transition:border-color .15s ease, color .15s ease, background .15s ease;
+    }
+    .chip::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; opacity:.65; }
+    .chip.ver { color:var(--accent2); border-color:rgba(91,140,255,.35); background:rgba(91,140,255,.08); }
+    .chip.ver::before { display:none; }
+    .chip.ok { background:rgba(62,207,142,.08); }
+    .chip.bad { background:rgba(255,107,107,.08); }
+    main { max-width:1240px; }
+    nav { gap:4px; }
+    nav button {
+      position:relative; border-radius:10px; padding:10px 13px;
+      transition:background .15s ease, color .15s ease, transform .06s ease;
+    }
+    nav button:hover { transform:translateX(2px); }
+    nav button.active {
+      background:linear-gradient(90deg, rgba(91,140,255,.16), rgba(91,140,255,.04));
+      border-color:rgba(91,140,255,.35);
+      color:#fff;
+    }
+    nav button.active::after {
+      content:''; position:absolute; left:0; top:20%; bottom:20%;
+      width:3px; border-radius:3px; background:var(--accent);
+    }
+    section.active { animation:fadeIn .18s ease; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:none; } }
+    .card {
+      background:linear-gradient(180deg, var(--card), var(--card2));
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:18px 20px;
+      box-shadow:var(--shadow);
+      transition:border-color .15s ease;
+    }
+    .card:hover { border-color:#2c3547; }
+    .card h2 { display:flex; align-items:center; gap:8px; font-size:14.5px; letter-spacing:.01em; }
+    .card h2::before { content:''; width:3px; height:14px; border-radius:2px; background:var(--accent); opacity:.8; }
+    table tbody tr { transition:background .12s ease; }
+    table tbody tr:hover { background:rgba(255,255,255,.02); }
+    th { text-transform:uppercase; letter-spacing:.06em; font-size:11px; }
+    button.primary {
+      background:linear-gradient(180deg, var(--accent2), var(--accent));
+      box-shadow:0 4px 14px rgba(91,140,255,.28);
+      transition:transform .06s ease, box-shadow .15s ease, filter .15s ease;
+    }
+    button.primary:hover { filter:brightness(1.06); box-shadow:0 6px 18px rgba(91,140,255,.36); }
+    button.primary:active { transform:translateY(1px); }
+    button.ghost { transition:background .15s ease, border-color .15s ease; }
+    button.ghost:hover { background:#242b38; border-color:#323c4f; }
+    input[type=text], input[type=number], textarea, select { border-radius:9px; transition:border-color .15s ease, box-shadow .15s ease; }
+    input[type=text]:focus, input[type=number]:focus, textarea:focus, select:focus {
+      outline:none; border-color:rgba(91,140,255,.55); box-shadow:0 0 0 3px rgba(91,140,255,.12);
+    }
+    pre.log { background:#090b10; border-radius:12px; }
+    ::-webkit-scrollbar { width:10px; height:10px; }
+    ::-webkit-scrollbar-thumb { background:#2a3242; border-radius:8px; border:2px solid var(--bg); }
+    ::-webkit-scrollbar-track { background:transparent; }
 </style>
 </head>
 <body>
 <header>
-  <h1>QQ 管理台</h1>
+  <div class="brand">
+    <h1>QQ 管理台</h1>
+    <span class="sub">原生链路 · made for DSH</span>
+  </div>
+  <span class="chip ver" id="chipVersion">v …</span>
   <span class="chip" id="chipDsh">DSH …</span>
   <span class="chip" id="chipSnow">SnowLuma …</span>
   <span class="chip" id="chipBridge">桥接 …</span>
   <span class="chip" id="chipMode">模式 …</span>
   <span class="spacer"></span>
-  <button class="ghost" id="btnRestart">重启桥接</button>
+  <button class="ghost" id="btnRestart">重连 QQ</button>
   <button class="primary" id="btnSave">保存设置</button>
 </header>
 <main>
   <nav>
     <button data-tab="overview" class="active">总览</button>
-    <button data-tab="groups">群聊与档位</button>
+    <button data-tab="groups">群聊（未启用）</button>
     <button data-tab="persona">人设</button>
-    <button data-tab="mode">模式与私聊</button>
+    <button data-tab="mode">原生链路</button>
     <button data-tab="logs">日志</button>
     <button data-tab="cost">成本</button>
       <button data-tab="sessions">会话</button>
@@ -91,7 +180,8 @@ const PAGE = String.raw`<!doctype html>
 
     <section id="tab-groups">
       <div class="card">
-        <h2>群聊白名单</h2>
+        <div class="muted" style="margin:8px 0 12px">⚠️ 原生插件目前只处理<b>私聊</b>；群聊功能未实现，下面的群号/档位配置暂不生效。</div>
+<h2>群聊白名单（未生效）</h2>
         <table><thead><tr><th>群号</th><th>响应档位（0-100）</th><th>关键词（逗号分隔）</th><th>静音</th><th></th></tr></thead><tbody id="groupRows"></tbody></table>
         <div class="row" style="margin-top:12px">
           <input type="text" id="newGroup" placeholder="新群号" />
@@ -108,6 +198,17 @@ const PAGE = String.raw`<!doctype html>
     </section>
 
     <section id="tab-persona">
+        <div class="card">
+          <h2>自述层（她自己能改的那一层）</h2>
+          <div class="muted" id="selfMeta">加载中…</div>
+          <textarea id="selfText" placeholder="她还没写自述" style="margin-top:8px;min-height:120px"></textarea>
+          <div class="row" style="margin-top:8px">
+            <button class="ghost" id="btnSelfSave">保存自述</button>
+            <button class="ghost" id="btnSelfRollback">回滚到上一个备份</button>
+            <span class="muted" id="selfMsg"></span>
+          </div>
+          <div class="muted" id="selfHistory" style="margin-top:8px">—</div>
+        </div>
       <div class="card">
         <h2>人设（角色卡）</h2>
         <div class="row"><label>当前人设</label><select id="personaSelect"></select></div>
@@ -120,22 +221,24 @@ const PAGE = String.raw`<!doctype html>
 
     <section id="tab-mode">
       <div class="card">
-        <h2>运行模式</h2>
+        <h2>原生链路说明</h2>
+<div class="muted" id="nativeInfo">加载中…</div>
         <div class="row"><label><input type="radio" name="mode" value="chat" /> chat（白名单聊天）</label></div>
         <div class="row"><label><input type="radio" name="mode" value="closed-agent" /> closed-agent（仅 owner 私聊，完整工具）</label></div>
           <div class="row"><label><input type="radio" name="mode" value="reserved" /> reserved（一代仿真：桥接拆条）</label></div>
           <div class="row"><label><input type="radio" name="mode" value="reserved2" /> reserved2（二代仿真：自主工具 · 记忆 · 唤醒）</label></div>
-          <p class="muted" style="color:#ff9f0a">⚠️ 模式改动会重启桥接并建立新会话（聊天上下文会重置，长期印象保留）。切到 reserved2 需要预设 qq-chat-v2；切回 chat/closed-agent 用 qq-chat。</p>
+          <p class="muted" style="color:#ff9f0a">⚠️ 模式改动会重连 QQ并建立新会话（聊天上下文会重置，长期印象保留）。切到 reserved2 需要预设 qq-chat-v2；切回 chat/closed-agent 用 qq-chat。</p>
         <div class="row"><label>owner QQ</label><input type="text" id="ownerQQ" /></div>
         <p class="muted">closed-agent = 只有 ownerQQ 私聊能用；群聊和其它人一律不响应。</p>
       </div>
       <div class="card">
-        <h2>私聊白名单</h2>
+        <h2>私聊白名单（原生链路不生效，只看 ownerQQ）</h2>
         <textarea id="allowPrivate" placeholder="每行一个 QQ 号"></textarea>
         <p class="muted">留空则谁都不回。</p>
       </div>
       <div class="card">
-        <h2>高级</h2>
+        <div class="muted" style="margin:8px 0">以下选项属于旧桥接；原生插件用 preset 默认值，改动不影响插件。</div>
+<h2>高级（旧桥接遗留）</h2>
         <div class="row"><label>模型</label><input type="text" id="modelName" placeholder="deepseek-flash" /></div>
         <div class="row"><label>推理强度</label><select id="reasoningEffort">
           <option value="off">off（最省，推荐聊天）</option>
@@ -171,6 +274,13 @@ const PAGE = String.raw`<!doctype html>
     </section>
 
     <section id="tab-memory">
+        <div class="card">
+          <h2>记忆总库（所有操作永久留档）</h2>
+          <div class="row"><input type="text" id="vaultQuery" placeholder="搜总库…" style="flex:1" />
+            <button class="ghost" id="btnVaultSearch">搜索</button><button class="ghost" id="btnVaultRefresh">刷新</button>
+            <span class="muted" id="vaultMeta">—</span></div>
+          <div class="muted" id="vaultBox">加载中…</div>
+        </div>
       <div class="card">
         <h2>记忆库</h2>
         <div class="row"><button class="ghost" id="btnRefreshMemory">刷新</button><span class="muted" id="memoryMeta"></span></div>
@@ -247,7 +357,7 @@ const PAGE = String.raw`<!doctype html>
         <div class="row" style="margin-top:8px;gap:10px;flex-wrap:wrap">
           <label class="muted">允许探索的目录（每行一个）</label>
         </div>
-        <div class="row"><textarea id="l5Dirs" rows="3" style="width:100%" placeholder="D:\\课件&#10;C:\\Users\\<you>\\Documents"></textarea></div>
+        <div class="row"><textarea id="l5Dirs" rows="3" style="width:100%" placeholder="D:\\课件&#10;C:\\Users\\Lenovo\\Documents"></textarea></div>
         <div class="row" style="margin-top:6px;gap:10px;align-items:center">
           <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="l5LongTask" /> 允许长任务（你指路后她可以连续干很多步）</label>
           <button id="btnL5Save">保存 L5 设置</button>
@@ -262,6 +372,42 @@ const PAGE = String.raw`<!doctype html>
     </section>
 
     <section id="tab-explore">
+        <div class="card">
+          <h2>群聊配置</h2>
+          <div class="row"><label style="display:flex;align-items:center;gap:8px;font-size:13px">
+            <input type="checkbox" id="groupsEnabled" /><span>启用群聊</span></label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+            <input type="checkbox" id="groupsActionEnabled" /><span>允许群消息动作</span></label></div>
+          <div class="row"><label>群号白名单（逗号分隔）</label><input type="text" id="groupsAllow" style="flex:1" placeholder="123456789,987654321" /></div>
+          <div class="row"><label>关键词（逗号分隔）</label><input type="text" id="groupsKeywords" style="flex:1" placeholder="小助手,deepseek" /></div>
+          <div class="row"><label>档位 0-100</label><input type="number" id="groupsTier" min="0" max="100" style="width:100px" /></div>
+          <div class="row"><label>冷却(秒)</label><input type="number" id="groupsCooldown" min="0" style="width:100px" />
+            <label>每小时上限</label><input type="number" id="groupsMaxHour" min="1" style="width:100px" /></div>
+          <div class="row"><button class="ghost" id="btnGroupsSave">保存群聊配置</button><span class="muted" id="groupsMsg"></span></div>
+        </div>
+  <div class="card">
+    <h2>屏幕监控（只读）</h2>
+    <div class="row"><label style="display:flex;align-items:center;gap:8px;font-size:13px">
+      <input type="checkbox" id="screenWatchToggle" /><span>持续看屏幕（只截图，不动鼠标键盘）</span></label></div>
+    <div class="row"><label>间隔(分钟)</label><input type="number" id="screenInterval" min="1" max="60" step="1" style="width:90px" /></div>
+    <div class="row"><label style="display:flex;align-items:center;gap:8px;font-size:13px">
+      <input type="checkbox" id="screenComment" /><span>看到变化时主动发一句（默认只记在心里）</span></label></div>
+    <div class="row"><button class="ghost" id="btnScreenSave">保存</button><button class="ghost" id="btnScreenRefresh">刷新</button>
+      <span class="muted" id="screenMeta">—</span></div>
+    <div class="muted" id="screenLatest" style="margin:8px 0">—</div>
+    <div id="screenObs" class="muted">加载中…</div>
+  </div>
+  <div class="card">
+    <h2>爱好（她自己的时间）</h2>
+    <div class="muted" id="hobbyMeta">加载中…</div>
+    <div id="hobbyList" style="margin:10px 0"></div>
+    <div class="row"><label>新增爱好</label><input type="text" id="hobbyName" placeholder="名字" style="width:140px" />
+      <input type="text" id="hobbyWhy" placeholder="为什么喜欢（可空）" style="flex:1" />
+      <button class="ghost" id="btnHobbyAdd">添加</button><button class="ghost" id="btnHobbyRefresh">刷新</button></div>
+    <div class="muted" id="hobbyNotes" style="margin-top:12px">—</div>
+  </div>
+
+
       <div class="card">
         <h2>她干了什么</h2>
         <div class="row"><button class="ghost" id="btnRefreshExplore">刷新</button><span class="muted" id="exploreMeta"></span></div>
@@ -283,8 +429,13 @@ const PAGE = String.raw`<!doctype html>
     </section>
 
     <section id="tab-logs">
+        <div class="card">
+          <h2>动作审计（最近 50 条）</h2>
+          <div class="row"><button class="ghost" id="btnActionsRefresh">刷新</button><span class="muted" id="actionsMeta">—</span></div>
+          <div class="muted" id="actionsBox">加载中…</div>
+        </div>
       <div class="card">
-        <h2>桥接日志</h2>
+        <h2>运行日志</h2>
         <div class="row"><button class="ghost" id="btnRefreshLog">刷新</button><span class="muted" id="logMeta"></span></div>
         <pre class="log" id="logBox">加载中…</pre>
       </div>
@@ -313,9 +464,28 @@ async function load() {
 }
 function render() {
   const s = state.settings, m = state.meta;
-  setChip('chipDsh', 'DSH :' + (m.dshPort ?? '?'), !!m.dshPort);
-  setChip('chipSnow', m.snowluma?.ws ? 'SnowLuma 在线' : 'SnowLuma 未连接', !!m.snowluma?.ws);
-  setChip('chipBridge', m.bridge?.running ? '桥接运行中 (pid ' + m.bridge.pid + ')' : '桥接未运行', !!m.bridge?.running);
+  const nativeOn = !!(m.native && (m.native.connected || m.native.config));
+  if (m.versions) {
+    const v = m.versions.native || m.versions.console || '';
+    setChip('chipVersion', v ? ('v' + v) : 'v 未知', true);
+    if ($('chipVersion')) $('chipVersion').title = '插件 ' + (m.versions.native || '-') + ' / 管理台 ' + (m.versions.console || '-') + ' / 预设 ' + (m.versions.presets || '-');
+  }
+  setChip('chipDsh', nativeOn ? 'DSH ⇄ 原生插件已连接' : 'DSH 未连接', nativeOn);
+    const ni = document.getElementById('nativeInfo');
+  if (ni) {
+    const nc = m.native || {};
+    const cfgLine = nc.config ? [
+      '会话：' + (nc.sessionId || '（首次回复后生成）'),
+      '触发：所有私聊消息（无需前缀）',
+      '合并窗口：' + (nc.config.batchWindowMs || 1600) + 'ms',
+      '主动找话题：' + (nc.config.proactive?.enabled ? '开（空闲 ' + (nc.config.proactive.idleMinutes||240) + ' 分钟，每天 ≤' + (nc.config.proactive.maxPerDay||3) + ' 次）' : '关'),
+      'L5 探索：' + (m.capabilities?.explore ? '开' : '关'),
+      '桥接：已退役（不再运行）',
+    ].join('<br>') : '插件状态未知';
+    ni.innerHTML = cfgLine;
+  }
+setChip('chipSnow', m.snowluma?.ws ? 'SnowLuma 在线' : 'SnowLuma 未连接', !!m.snowluma?.ws);
+  setChip('chipBridge', (m.bridge?.running ? (m.bridge?.native ? 'QQ 已连接（原生插件）' : 'QQ 已连接 (pid ' + m.bridge.pid + ')') : 'QQ 未连接'), !!m.bridge?.running || !!m.snowluma?.ws);
   setChip('chipMode', s.mode, true);
   $('overview').innerHTML =
     '<div class="grid2">' +
@@ -365,7 +535,7 @@ function renderGroups(s) {
   }));
 }
 function renderPersona(s) {
-  const options = ['助手'];
+  const options = ['小助手'];
   const sel = $('personaSelect');
   sel.innerHTML = options.map((n) => '<option value="' + esc(n) + '">' + esc(n) + '</option>').join('') + '<option value="__off">（关闭角色扮演）</option>';
   sel.value = s.persona?.name || '__off';
@@ -397,12 +567,12 @@ function collect() {
   const p = $('personaSelect').value;
   const file = $('personaFile').value.trim();
   const text = $('personaText').value;
-  s.persona = p === '__off' && !file && !text.trim() ? { name: '', file: '', text: '' } : { name: p === '__off' ? '' : p, file: file || (p === '助手' ? state.settings.persona?.file || '' : ''), text };
+  s.persona = p === '__off' && !file && !text.trim() ? { name: '', file: '', text: '' } : { name: p === '__off' ? '' : p, file: file || (p === '小助手' ? state.settings.persona?.file || '' : ''), text };
   return s;
 }
 async function save() {
   const s = collect();
-    // 模式改动是破坏性的（要重启桥接并重建会话），必须二次确认。
+    // 模式改动是破坏性的（要重连 QQ并重建会话），必须二次确认。
     const prevMode = (state.settings && state.settings.mode) || 'chat';
     if (s.mode !== prevMode) {
       const label = {
@@ -411,14 +581,14 @@ async function save() {
         reserved: 'reserved（一代仿真）',
         reserved2: 'reserved2（二代仿真）'
       };
-      const ok = window.confirm('模式将从「' + (label[prevMode] || prevMode) + '」改为「' + (label[s.mode] || s.mode) + '」。\n\n这会重启桥接并建立新会话，当前聊天上下文会重置（长期印象保留）。\n确定要改吗？');
+      const ok = window.confirm('模式将从「' + (label[prevMode] || prevMode) + '」改为「' + (label[s.mode] || s.mode) + '」。\n\n这会重连 QQ并建立新会话，当前聊天上下文会重置（长期印象保留）。\n确定要改吗？');
       if (!ok) { toast('已取消：模式未修改'); return; }
     }
   await api('/api/settings', { method: 'POST', body: JSON.stringify(s) });
-  toast('已保存，正在重启桥接…');
+  toast('已保存，正在重连 QQ…');
   setTimeout(load, 1500);
 }
-async function restart() { await api('/api/restart', { method: 'POST', body: '{}' }); toast('桥接重启中…'); setTimeout(load, 1500); }
+async function restart() { await api('/api/restart', { method: 'POST', body: '{}' }); toast('原生链路无需重启，已忽略'); setTimeout(load, 1500); }
 function fmtMoney(v) { return '¥' + (Number(v) || 0).toFixed(4); }
 function fmtInt(v) { return (Number(v) || 0).toLocaleString('en-US'); }
 async function loadCost() {
@@ -489,6 +659,85 @@ async function loadSessions() {
 }
 
 function memTime(t) { return new Date(Number(t) || Date.now()).toLocaleString('zh-CN', { hour12: false }); }
+  async function loadPersonaSelf() {
+    try {
+      const d = await api('/api/persona-self');
+      if ($('selfText')) $('selfText').value = d.text || '';
+      if ($('selfMeta')) $('selfMeta').textContent = (d.chars || 0) + ' / ' + (d.maxChars || 4096) + ' 字 · 备份 ' + (d.backups || []).length + ' 个';
+      const h = $('selfHistory');
+      if (h) h.innerHTML = (d.history || []).length
+        ? '<b>变更历史</b><br>' + d.history.map((x) => new Date(x.at).toLocaleString('zh-CN', { hour12: false }) + ' · ' + (x.action || '') + ' · ' + (x.by || '') + (x.chars ? ' · ' + x.chars + ' 字' : '')).join('<br>')
+        : '（还没有变更记录）';
+    } catch (e) { /* ignore */ }
+  }
+  async function savePersonaSelf() {
+    const text = ($('selfText')?.value || '').trim();
+    try {
+      const r = await api('/api/persona-self', { method: 'POST', body: JSON.stringify({ action: 'write', text }) });
+      if (r.ok) { toast('自述已保存'); await loadPersonaSelf(); } else toast(r.error || '保存失败');
+    } catch (e) { toast('保存失败：' + e.message); }
+  }
+  async function rollbackPersonaSelf() {
+    if (!window.confirm('回滚到上一个备份？')) return;
+    try {
+      const r = await api('/api/persona-self', { method: 'POST', body: JSON.stringify({ action: 'rollback' }) });
+      if (r.ok) { toast('已回滚到 ' + r.from); await loadPersonaSelf(); } else toast(r.error || '回滚失败');
+    } catch (e) { toast('回滚失败：' + e.message); }
+  }
+
+  async function loadGroupsCfg() {
+    try {
+      const d = await api('/api/groups');
+      const g = d.groups || {};
+      if ($('groupsEnabled')) $('groupsEnabled').checked = !!g.enabled;
+      if ($('groupsActionEnabled')) $('groupsActionEnabled').checked = !!d.actionGroupEnabled;
+      if ($('groupsAllow')) $('groupsAllow').value = (g.allow || []).join(',');
+      if ($('groupsKeywords')) $('groupsKeywords').value = (g.keywords || []).join(',');
+      if ($('groupsTier')) $('groupsTier').value = String(g.defaultTier ?? 20);
+      if ($('groupsCooldown')) $('groupsCooldown').value = String(g.cooldownSeconds ?? 20);
+      if ($('groupsMaxHour')) $('groupsMaxHour').value = String(g.maxPerHour ?? 30);
+    } catch (e) { /* ignore */ }
+  }
+  async function saveGroupsCfg() {
+    const split = (v) => String(v || '').split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
+    const groups = {
+      enabled: !!$('groupsEnabled')?.checked,
+      allow: split($('groupsAllow')?.value),
+      keywords: split($('groupsKeywords')?.value),
+      defaultTier: Number($('groupsTier')?.value) || 0,
+      cooldownSeconds: Number($('groupsCooldown')?.value) || 0,
+      maxPerHour: Number($('groupsMaxHour')?.value) || 30,
+    };
+    try {
+      await api('/api/groups', { method: 'POST', body: JSON.stringify({ groups, enableActionGroup: !!$('groupsActionEnabled')?.checked }) });
+      if ($('groupsMsg')) $('groupsMsg').textContent = '已保存（重启 DSH 生效）';
+      toast('群聊配置已保存');
+    } catch (e) { toast('保存失败：' + e.message); }
+  }
+
+  async function loadActions() {
+    try {
+      const d = await api('/api/actions');
+      if ($('actionsMeta')) $('actionsMeta').textContent = '最近 ' + (d.total || 0) + ' 条';
+      const box = $('actionsBox');
+      if (box) box.innerHTML = (d.actions || []).length
+        ? d.actions.map((a) => '<div style="padding:5px 0;border-bottom:1px solid #262b36">' + new Date(a.at).toLocaleString('zh-CN', { hour12: false }) + ' · ' + (a.action || '') + ' · ' + (a.ok ? '<span style="color:#3ecf8e">ok</span>' : '<span style="color:#ff6b6b">fail</span>') + (a.error ? ' · ' + a.error : '') + (a.ms !== undefined ? ' · ' + a.ms + 'ms' : '') + '</div>').join('')
+        : '（还没有动作记录）';
+    } catch (e) { /* ignore */ }
+  }
+
+  async function loadVault() {
+    try {
+      const q = $('vaultQuery')?.value || '';
+      const d = await api('/api/vault' + (q ? '?q=' + encodeURIComponent(q) : ''));
+      if ($('vaultMeta')) $('vaultMeta').textContent = '共 ' + (d.total || 0) + ' 条事件 · ' + (d.sizeKB || 0) + ' KB' + (q ? ' · 匹配 ' + d.matched : '');
+      const box = $('vaultBox');
+      if (box) box.innerHTML = (d.recent || []).length
+        ? d.recent.map((r) => '<div style="padding:5px 0;border-bottom:1px solid #262b36"><span class="muted">' + new Date(r.at).toLocaleString('zh-CN', { hour12: false }) + ' · ' + (r.op || '') + ' · ' + (r.origin || '') + '</span><br>' + String(r.text || '').slice(0, 200) + '</div>').join('')
+        : '（总库还没有记录）';
+    } catch (e) { /* ignore */ }
+  }
+
 async function loadMemory(q) {
   const box = $('memoryBox');
   if (!box) return;
@@ -563,6 +812,24 @@ async function loadCaps() {
            '<button id="btnCapApprove">允许</button> <button class="ghost" id="btnCapDeny">拒绝</button>' +
            '<div class="muted" style="margin-top:6px">她申请的理由：' + esc(c.pending.note || '（没写）') + '</div>')
         : '<span class="muted">没有待批准的申请</span>';
+  if ($('btnHobbyAdd')) $('btnHobbyAdd').addEventListener('click', addHobby);
+  if ($('btnHobbyRefresh')) $('btnHobbyRefresh').addEventListener('click', loadHobbies);
+  loadHobbies();
+  if ($('btnSelfSave')) $('btnSelfSave').addEventListener('click', savePersonaSelf);
+  if ($('btnSelfRollback')) $('btnSelfRollback').addEventListener('click', rollbackPersonaSelf);
+  if ($('btnGroupsSave')) $('btnGroupsSave').addEventListener('click', saveGroupsCfg);
+  if ($('btnActionsRefresh')) $('btnActionsRefresh').addEventListener('click', loadActions);
+  if ($('btnVaultSearch')) $('btnVaultSearch').addEventListener('click', loadVault);
+  if ($('btnVaultRefresh')) $('btnVaultRefresh').addEventListener('click', loadVault);
+  loadPersonaSelf();
+  loadGroupsCfg();
+  loadActions();
+  loadVault();
+  if ($('btnScreenSave')) $('btnScreenSave').addEventListener('click', saveScreen);
+  if ($('btnScreenRefresh')) $('btnScreenRefresh').addEventListener('click', loadScreen);
+  loadScreen();
+  setInterval(loadScreen, 15000);
+
       if ($('btnCapApprove')) $('btnCapApprove').addEventListener('click', async () => {
         await api('/api/capabilities', { method: 'POST', body: JSON.stringify({ action: 'approve', by: 'console' }) });
         toast('已允许'); loadCaps().catch(() => {});
@@ -594,6 +861,69 @@ async function setCap(name, value) {
     loadCaps().catch(() => {});
   } catch (e) { toast('切换失败：' + e.message); loadCaps().catch(() => {}); }
 }
+
+  async function loadHobbies() {
+    try {
+      const d = await api('/api/hobbies');
+      const box = $('hobbyList');
+      if ($('hobbyMeta')) $('hobbyMeta').textContent = '今天已经玩过 ' + (d.runsToday || 0) + ' 次 · 每天最多 2 次（白天）';
+      if (box) {
+        box.innerHTML = (d.items || []).map((h) => {
+          const stars = '★'.repeat(Math.max(1, Math.min(5, Math.round(h.level))));
+          const last = h.lastAt ? new Date(h.lastAt).toLocaleDateString('zh-CN') : '还没玩过';
+          return '<div style="padding:6px 0;border-bottom:1px solid #262b36"><b>' + h.name + '</b> <span class="muted">' + stars + ' · ' + last + (h.why ? ' · ' + h.why : '') + '</span></div>';
+        }).join('') || '<span class="muted">还没有爱好</span>';
+      }
+      const notes = $('hobbyNotes');
+      if (notes) {
+        const recent = (d.recent || []).slice(0, 8);
+        notes.innerHTML = recent.length
+          ? '<b>她最近写的</b>' + recent.map((r) => '<div style="padding:6px 0;border-bottom:1px solid #262b36"><span class="muted">' + new Date(r.at).toLocaleString('zh-CN', { hour12: false }) + ' · ' + (r.hobby || '') + '</span><br>' + String(r.text || '').slice(0, 200) + '</div>').join('')
+          : '（还没有笔记，等她自己的时间）';
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  async function addHobby() {
+    const name = ($('hobbyName')?.value || '').trim();
+    if (!name) { toast('先写个名字'); return; }
+    try {
+      await api('/api/hobbies', { method: 'POST', body: JSON.stringify({ action: 'add', name, why: $('hobbyWhy')?.value || '' }) });
+      if ($('hobbyName')) $('hobbyName').value = '';
+      if ($('hobbyWhy')) $('hobbyWhy').value = '';
+      toast('加好了'); await loadHobbies();
+    } catch (e) { toast('失败：' + e.message); }
+  }
+
+  async function loadScreen() {
+    try {
+      const d = await api('/api/screen');
+      if ($('screenWatchToggle')) $('screenWatchToggle').checked = !!d.enabled;
+      if ($('screenInterval') && !$('screenInterval').value) $('screenInterval').value = String(d.everyMinutes || 5);
+      if ($('screenComment')) $('screenComment').checked = !!d.comment;
+      if ($('screenMeta')) $('screenMeta').textContent = d.enabled ? ('运行中 · 每 ' + (d.everyMinutes||5) + ' 分钟') : '已关闭';
+      if ($('screenLatest')) $('screenLatest').textContent = d.latestExists
+        ? ('最近截图：' + new Date(d.latestAt).toLocaleString('zh-CN', { hour12: false }) + ' · 累计变化 ' + (d.changes||0) + ' 次')
+        : '还没有截图';
+      const box = $('screenObs');
+      if (box) {
+        const obs = (d.observations || []).slice(0, 10);
+        box.innerHTML = obs.length
+          ? '<h2 style="margin-top:12px">她最近看到的</h2>' + obs.map((o) => '<div style="padding:6px 0;border-bottom:1px solid #262b36">' + new Date(o.at).toLocaleString('zh-CN', { hour12: false }) + ' — ' + String(o.text || '').slice(0, 200) + '</div>').join('')
+          : '（还没有观察记录）';
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  async function saveScreen() {
+    const body = {
+      enabled: !!$('screenWatchToggle')?.checked,
+      everyMinutes: Number($('screenInterval')?.value) || 5,
+      comment: !!$('screenComment')?.checked,
+    };
+    try { await api('/api/screen', { method: 'POST', body: JSON.stringify(body) }); toast('已保存'); await loadScreen(); }
+    catch (e) { toast('保存失败：' + e.message); }
+  }
 
 async function loadExplore() {
   const box = $('exploreBox');
@@ -763,13 +1093,43 @@ $('workModeToggle').addEventListener('change', async function () {
   if (on && !window.confirm('打开工作模式？她会获得命令执行 + 读写文件能力，并且会话会重建。')) { $('workModeToggle').checked = false; return; }
   try {
     await api('/api/settings', { method: 'POST', body: JSON.stringify({ workMode: on }) });
-    if ($('workModeMsg')) $('workModeMsg').textContent = on ? '已打开，正在重启桥接…' : '已关闭，正在重启桥接…';
+    if ($('workModeMsg')) $('workModeMsg').textContent = on ? '已打开，正在重连 QQ…' : '已关闭，正在重连 QQ…';
     await api('/api/restart', { method: 'POST' });
     if ($('workModeMsg')) $('workModeMsg').textContent = on ? '工作模式已开（会话已重建）' : '工作模式已关';
   } catch (e) { toast('切换失败：' + e.message); }
 });
 $('btnRefreshTasks').addEventListener('click', () => loadTasks());
 load().catch((e) => { document.body.innerHTML = '<p style="padding:24px;color:#ff6b6b">无法连接管理 API：' + esc(e.message) + '</p>'; });
+</script>
+
+<style id="native-clean-style">
+  /* 原生链路：隐藏桥接时代的界面 */
+  button[data-tab="groups"], #tab-groups { display: none !important; }
+</style>
+<script id="native-clean">
+document.addEventListener('DOMContentLoaded', () => {
+  const hide = (el) => { if (el) el.style.display = 'none'; };
+  hide(document.querySelector('button[data-tab="groups"]'));
+  hide(document.getElementById('tab-groups'));
+  // 隐藏桥接遗留的卡片（高级 / 私聊白名单 / 运行模式单选）
+  document.querySelectorAll('.card').forEach((card) => {
+    const h = card.querySelector('h2');
+    if (!h) return;
+    const txt = h.textContent || '';
+    if (txt.includes('高级') || txt.includes('私聊白名单') || txt.includes('群聊白名单')) hide(card);
+  });
+  document.querySelectorAll('input[name="mode"]').forEach((el) => {
+    const row = el.closest('.row');
+    if (row) hide(row);
+  });
+  // 高级卡片没有 h2 的被上面覆盖不到时，按文本再兜底一次
+  document.querySelectorAll('.muted').forEach((el) => {
+    if ((el.textContent || '').includes('旧桥接遗留') || (el.textContent || '').includes('以下选项属于旧桥接')) {
+      const card = el.closest('.card');
+      if (card) hide(card);
+    }
+  });
+});
 </script>
 </body>
 </html>`;
@@ -811,6 +1171,12 @@ function startConsole(options) {
     if (!authorized(req, url)) return send(res, 401, 'unauthorized');
 
     try {
+      const HOBBY_DIR = pathx.join(osx.homedir(), '.dsh', 'qq-native', 'data');
+      const readHobbiesRaw = () => {
+        try { return JSON.parse(fsx.readFileSync(pathx.join(HOBBY_DIR, 'hobbies.json'), 'utf8')); } catch { return { items: [] }; }
+      };
+      
+      
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
         return send(res, 200, PAGE, 'text/html; charset=utf-8');
       }
@@ -909,6 +1275,134 @@ function startConsole(options) {
         const lines = Math.min(2000, Math.max(20, Number(url.searchParams.get('lines')) || 200));
         return send(res, 200, JSON.stringify(await logTail(lines)));
       }
+      // ── 屏幕监控 / 爱好（原生链路新增）────────────────────────────
+      const nativeHome = () => osx.homedir();
+      const nativeStateDir = () => pathx.join(nativeHome(), '.dsh', 'qq-native', 'state');
+      const nativeDataDir = () => pathx.join(nativeHome(), '.dsh', 'qq-native', 'data');
+      const readJsonFile = (f) => { try { return JSON.parse(fsx.readFileSync(f, 'utf8').replace(/^\uFEFF/, '')); } catch { return null; } };
+      const readScreenState = () => {
+        const dir = pathx.join(nativeHome(), '.dsh', 'qq-native', 'screen');
+        const cfg = readJsonFile(pathx.join(nativeHome(), '.dsh', 'qq-native', 'config.json')) || {};
+        const sw = cfg.screenWatch || { enabled: false, everyMinutes: 5, comment: false };
+        const st = readJsonFile(pathx.join(dir, 'state.json')) || {};
+        const readLines = (name, limit) => { try { return fsx.readFileSync(pathx.join(dir, name), 'utf8').trim().split(/\r?\n/).filter(Boolean).slice(-limit).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse(); } catch { return []; } };
+        let latestAt = 0; try { latestAt = fsx.statSync(pathx.join(dir, 'latest.png')).mtimeMs; } catch { /* none */ }
+        return { enabled: Boolean(sw.enabled), everyMinutes: Number(sw.everyMinutes) || 5, comment: Boolean(sw.comment), lastAt: Number(st.lastAt) || 0, changes: Number(st.changes) || 0, lastChangeAt: Number(st.lastChangeAt) || 0, latestExists: latestAt > 0, latestAt, observations: readLines('observations.jsonl', 20), changesLog: readLines('watch.jsonl', 20) };
+      };
+      const readHobbiesState = () => {
+        const dir = nativeDataDir();
+        const j = readJsonFile(pathx.join(dir, 'hobbies.json')) || { items: [] };
+        const rows = (() => { try { return fsx.readFileSync(pathx.join(dir, 'hobby-log.jsonl'), 'utf8').trim().split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse(); } catch { return []; } })();
+        const today = new Date().toDateString();
+        return { items: (j.items || []).map((h) => ({ name: h.name, why: h.why || '', level: Number(h.level) || 3, lastAt: Number(h.lastAt) || 0, notes: (h.notes || []).slice(-3) })), recent: rows.slice(0, 20), runsToday: rows.filter((r) => new Date(r.at).toDateString() === today).length };
+      };
+      const addHobbyItem = (name, why) => {
+        const dir = nativeDataDir();
+        const j = readJsonFile(pathx.join(dir, 'hobbies.json')) || { items: [] };
+        if ((j.items || []).some((h) => h.name === name)) return;
+        j.items = [...(j.items || []), { id: 'h' + Date.now().toString(36), name, why, level: 3, createdAt: Date.now(), lastAt: 0, notes: [] }];
+        fsx.mkdirSync(dir, { recursive: true });
+        fsx.writeFileSync(pathx.join(dir, 'hobbies.json'), JSON.stringify(j, null, 2) + '\n', 'utf8');
+      };
+      if (req.method === 'GET' && url.pathname === '/api/screen') { return send(res, 200, JSON.stringify(readScreenState())); }
+      if (req.method === 'POST' && url.pathname === '/api/screen') {
+        const chunks = []; for await (const c of req) chunks.push(c);
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        const cfgFile = pathx.join(nativeHome(), '.dsh', 'qq-native', 'config.json');
+        const cfg = readJsonFile(cfgFile) || {};
+        const cur = cfg.screenWatch || { enabled: false, everyMinutes: 5, comment: false };
+        cfg.screenWatch = { ...cur, ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}), ...(Number(body.everyMinutes) > 0 ? { everyMinutes: Number(body.everyMinutes) } : {}), ...(typeof body.comment === 'boolean' ? { comment: body.comment } : {}) };
+        fsx.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+        return send(res, 200, JSON.stringify({ ok: true, screen: readScreenState() }));
+      }
+      if (req.method === 'GET' && url.pathname === '/api/hobbies') { return send(res, 200, JSON.stringify(readHobbiesState())); }
+      if (req.method === 'POST' && url.pathname === '/api/hobbies') {
+        const chunks = []; for await (const c of req) chunks.push(c);
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        if (body.action === 'add') { const name = String(body.name || '').trim(); if (!name) return send(res, 400, JSON.stringify({ error: 'name 不能为空' })); addHobbyItem(name, String(body.why || '')); }
+        return send(res, 200, JSON.stringify({ ok: true, hobbies: readHobbiesState() }));
+      }
+
+      // ── 新增：自述层 / 群聊配置 / 动作审计 / 记忆总库 ──────────────
+      const qqNativeDir = pathx.join(osx.homedir(), '.dsh', 'qq-native');
+      const readJsonSafe = (f) => { try { return JSON.parse(fsx.readFileSync(f, 'utf8').replace(/^\uFEFF/, '')); } catch { return null; } };
+      const readTextSafe = (f) => { try { return fsx.readFileSync(f, 'utf8'); } catch { return ''; } };
+      
+      if (req.method === 'GET' && url.pathname === '/api/persona-self') {
+        const selfFile = pathx.join(qqNativeDir, 'data', 'persona-self.md');
+        const auditFile = pathx.join(qqNativeDir, 'state', 'persona-changes.jsonl');
+        const dataDir = pathx.join(qqNativeDir, 'data');
+        let backups = [];
+        try { backups = fsx.readdirSync(dataDir).filter((f) => f.startsWith('persona-self.md.bak-')).sort().reverse().slice(0, 10); } catch { /* none */ }
+        let history = [];
+        try { history = fsx.readFileSync(auditFile, 'utf8').trim().split(/\r?\n/).filter(Boolean).slice(-20).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse(); } catch { /* none */ }
+        return send(res, 200, JSON.stringify({ text: readTextSafe(selfFile), chars: readTextSafe(selfFile).length, maxChars: 4096, backups, history }));
+      }
+      if (req.method === 'POST' && url.pathname === '/api/persona-self') {
+        const chunks = []; for await (const c of req) chunks.push(c);
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        const dataDir = pathx.join(qqNativeDir, 'data');
+        const selfFile = pathx.join(dataDir, 'persona-self.md');
+        if (body.action === 'rollback') {
+          let backups = [];
+          try { backups = fsx.readdirSync(dataDir).filter((f) => f.startsWith('persona-self.md.bak-')).sort(); } catch { /* none */ }
+          if (!backups.length) return send(res, 200, JSON.stringify({ ok: false, error: '没有备份可回滚' }));
+          const src = pathx.join(dataDir, backups[backups.length - 1]);
+          fsx.copyFileSync(src, selfFile);
+          try { fsx.appendFileSync(pathx.join(qqNativeDir, 'state', 'persona-changes.jsonl'), JSON.stringify({ at: new Date().toISOString(), action: 'rollback', by: 'console', reason: 'rollback to ' + backups[backups.length - 1] }) + '\n', 'utf8'); } catch { /* none */ }
+          return send(res, 200, JSON.stringify({ ok: true, from: backups[backups.length - 1] }));
+        }
+        if (body.action === 'write') {
+          const text = String(body.text || '').trim();
+          if (!text) return send(res, 400, JSON.stringify({ ok: false, error: '内容为空' }));
+          if (text.length > 4096) return send(res, 400, JSON.stringify({ ok: false, error: '超过 4096 字' }));
+          try { fsx.mkdirSync(dataDir, { recursive: true }); } catch { /* none */ }
+          try { if (fsx.existsSync(selfFile)) fsx.copyFileSync(selfFile, selfFile + '.bak-' + Date.now()); } catch { /* none */ }
+          fsx.writeFileSync(selfFile, text + '\n', 'utf8');
+          try { fsx.appendFileSync(pathx.join(qqNativeDir, 'state', 'persona-changes.jsonl'), JSON.stringify({ at: new Date().toISOString(), action: 'write', by: 'console', chars: text.length }) + '\n', 'utf8'); } catch { /* none */ }
+          return send(res, 200, JSON.stringify({ ok: true, chars: text.length }));
+        }
+        return send(res, 400, JSON.stringify({ ok: false, error: '未知 action' }));
+      }
+      
+      if (req.method === 'GET' && url.pathname === '/api/groups') {
+        const cfg = readJsonSafe(pathx.join(qqNativeDir, 'config.json')) || {};
+        const g = cfg.groups || {};
+        return send(res, 200, JSON.stringify({ groups: g, actionGroupEnabled: !!(cfg.actions && cfg.actions.enabled && cfg.actions.enabled.group) }));
+      }
+      if (req.method === 'POST' && url.pathname === '/api/groups') {
+        const chunks = []; for await (const c of req) chunks.push(c);
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+        const cfgFile = pathx.join(qqNativeDir, 'config.json');
+        const cfg = readJsonSafe(cfgFile) || {};
+        cfg.groups = { ...(cfg.groups || {}), ...(body.groups || {}) };
+        if (typeof body.enableActionGroup === 'boolean') {
+          cfg.actions = cfg.actions || {};
+          cfg.actions.enabled = { ...(cfg.actions.enabled || {}), group: body.enableActionGroup };
+        }
+        fsx.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+        return send(res, 200, JSON.stringify({ ok: true, groups: cfg.groups }));
+      }
+      
+      if (req.method === 'GET' && url.pathname === '/api/actions') {
+        const f = pathx.join(qqNativeDir, 'state', 'actions.jsonl');
+        let rows = [];
+        try { rows = fsx.readFileSync(f, 'utf8').trim().split(/\r?\n/).filter(Boolean).slice(-200).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse(); } catch { /* none */ }
+        return send(res, 200, JSON.stringify({ total: rows.length, actions: rows.slice(0, 50) }));
+      }
+      
+      if (req.method === 'GET' && url.pathname === '/api/vault') {
+        const dir = process.env.QQ_MEMORY_DIR || pathx.join(osx.homedir(), '.dsh', 'qq-memory');
+        const f = pathx.join(dir, 'all-memories.jsonl');
+        let rows = [];
+        try { rows = fsx.readFileSync(f, 'utf8').trim().split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { /* none */ }
+        const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
+        const filtered = q ? rows.filter((r) => String(r.text || '').toLowerCase().includes(q)) : rows;
+        const byOp = {}; for (const r of rows) byOp[r.op] = (byOp[r.op] || 0) + 1;
+        let sizeKB = 0; try { sizeKB = Math.round(fsx.statSync(f).size / 1024 * 10) / 10; } catch { /* none */ }
+        return send(res, 200, JSON.stringify({ total: rows.length, matched: filtered.length, byOp, sizeKB, file: f, recent: filtered.slice(-40).reverse() }));
+      }
+      
       return send(res, 404, 'not found');
     } catch (error) {
       log(`console: ${req.method} ${url.pathname} failed: ${error?.message ?? error}`);

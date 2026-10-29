@@ -122,7 +122,8 @@ const LOCAL_EXECUTION_TOOLS = [
   // shell / 进程
   'pwsh', 'bash',
   // 文件读写
-  'read', 'read_image', 'write', 'edit', 'str_replace_editor',
+    // 文件读写（read_image 单独放行：只读看图，由运行期规则限制到媒体目录）
+    'read', 'write', 'edit', 'str_replace_editor',
   // 文件检索
   'glob', 'grep',
   // 自带运行时（Python/Node/pnpm 的绝对路径）⇒ 等于把"跑代码"递给模型
@@ -219,6 +220,7 @@ const SAFE_PREFIXES = [
   'mcp__web-search-safe__',
   'mcp__files__',
     'mcp__memory__',
+    'mcp__qq-actions__',
     'mcp__tasks__',
     'mcp__shell__',
 ]
@@ -285,6 +287,13 @@ function exploreAllowed() { return readCap('explore') }
 function desktopCapabilityAllowed() { return readCap('desktop') }
 
 // 工作模式才挂载的开发工具（preset qq-work 里注册）
+// [patch] read_image 在聊天模式也允许读 QQ 媒体目录（收图让她看）
+const MEDIA_DIR = path.join(os.homedir(), '.dsh', 'qq-native', 'media') + path.sep;
+function mediaDirAllowed(p) {
+  try { return typeof p === 'string' && p.length > 0 && path.resolve(p).startsWith(MEDIA_DIR); }
+  catch { return false; }
+}
+
 const WORK_TOOLS = new Set(['pwsh', 'read', 'write', 'edit', 'glob', 'grep', 'read_image', 'working_directory'])
 function workModeAllowed() {
   try {
@@ -375,6 +384,14 @@ export function apply(ctx) {
       }
       return
     }
+    // [patch] read_image：媒体目录内的图片在聊天模式也允许看
+    if (name === 'read_image') {
+      const args = exec?.args ?? exec?.input ?? exec?.params ?? {}
+      const p = String(args.path ?? args.file_path ?? args.filePath ?? '')
+      if (p && mediaDirAllowed(p)) return
+      // 不在媒体目录：交给下面的工作模式判断
+    }
+
     if (WORK_TOOLS.has(name)) {
       return workModeAllowed() ? undefined : '工作模式没开：让主人在管理台「权限」页打开「工作模式」。'
     }
